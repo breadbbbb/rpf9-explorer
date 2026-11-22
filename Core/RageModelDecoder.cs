@@ -121,7 +121,7 @@ public static class RageModelDecoder
             !(SystemPointer(name) || (embedded && name == 0))) return false;
         Vector3 min = ReadVector(prefix, 48), max = ReadVector(prefix, 64);
         float radius = BinaryPrimitives.ReadSingleLittleEndian(prefix[44..]);
-        return ValidBounds(min, max) && float.IsFinite(radius) && radius is > 0 and < 1_000_000;
+        return ValidBounds(min, max) && float.IsFinite(radius) && radius is >= 0 and < 1_000_000;
     }
 
     public static RageModel? Inspect(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics) => Decode(system, graphics);
