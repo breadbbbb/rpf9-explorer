@@ -16,9 +16,11 @@ public sealed record BcpackDecodeResult(byte[] Data, IReadOnlySet<string> Provis
 /// Clean-room Xbox Series DirectStorage BCPack bitstream decoder.
 /// Implements the 12/16-lane 16-bit interleaved rANS entropy layer (8-byte/cycle prefetch
 /// scheduling, banded exponential probability models, legal end-state validation) and
-/// block rebuilders for DSTORAGE_BCPACK_MODE codecs 1 (BC1), 3 (BC3), 4 (BC4), and 5 (BC5).
+/// block rebuilders for DSTORAGE_BCPACK_MODE codecs 1 (BC1), 3 (BC3), 4 (BC4), 5 (BC5), 6 (BC6H), and 7 (BC7).
+/// BC6H and BC7 run without BCPack's unpublished initial-history tables, so a chunk that reads the built-in
+/// history is refused in strict mode (see <see cref="Bc6hRebuilder"/> and <see cref="Bc7Rebuilder"/>).
 /// </summary>
-public static class BcpackDecoder
+public static partial class BcpackDecoder
 {
     public const uint RansL = 1u << 24;
     public const int MaxWidth = 10;
@@ -66,8 +68,8 @@ public static class BcpackDecoder
         specs[3] = new(3, "BC3", 16, [4, 4, 8, 6, 6, 6, 6, 5, 6, 5, 8, 8], true);
         specs[4] = new(4, "BC4", 8, [8, 8, 8, 8, 6, 6, 6, 6, 6, 6, 6, 6], true);
         specs[5] = new(5, "BC5", 16, [4, 4, 8, 8, 6, 6, 6, 6, 6, 6, 6, 6], true);
-        specs[6] = new(6, "BC6H", 16, [4, 4, 8, 8, 8, 5, 5, 5, 6, 6, 6, 8, 8, 8, 8, 5], false);
-        specs[7] = new(7, "BC7", 16, [4, 4, 8, 8, 8, 8, 8, 7, 7, 5, 6, 8, 8, 8, 8, 5], false);
+        specs[6] = new(6, "BC6H", 16, [4, 4, 8, 8, 8, 5, 5, 5, 6, 6, 6, 8, 8, 8, 8, 5], true);
+        specs[7] = new(7, "BC7", 16, [4, 4, 8, 8, 8, 8, 8, 7, 7, 5, 6, 8, 8, 8, 8, 5], true);
         return specs;
     }
 
@@ -108,6 +110,8 @@ public static class BcpackDecoder
             3 => RebuildBc3(lanes, blockCount, provisional, cancellationToken),
             4 => RebuildBc4(lanes, blockCount, provisional, cancellationToken),
             5 => RebuildBc5(lanes, blockCount, provisional, cancellationToken),
+            6 => Bc6hRebuilder.Rebuild(lanes, blockCount, provisional, cancellationToken),
+            7 => Bc7Rebuilder.Rebuild(lanes, blockCount, provisional, cancellationToken),
             _ => throw new NotSupportedException($"Xbox BCPack codec {codec} ({GetCodecName(codec)}) is not supported.")
         };
 
@@ -784,7 +788,37 @@ public static class BcpackDecoder
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int DecodeZigZag(int v) => (v & 1) != 0 ? -((v + 1) >> 1) : (v >> 1);
+    internal static int DecodeZigZag(int v) => (v & 1) != 0 ? -((v + 1) >> 1) : (v >> 1);
+
+    /// <summary>Interleaves the low <paramref name="bits"/> bits of two lane symbols: bit k of <paramref name="a"/> goes to 2k, of <paramref name="b"/> to 2k+1.</summary>
+    internal static int Interleave(int a, int b, int bits)
+    {
+        int result = 0;
+        for (int k = 0; k < bits; k++)
+            result |= (((a >> k) & 1) << (2 * k)) | (((b >> k) & 1) << (2 * k + 1));
+        return result;
+    }
+
+    private static readonly byte[] EvenBits = BuildBitPick(0);
+    private static readonly byte[] OddBits = BuildBitPick(1);
+
+    private static byte[] BuildBitPick(int first)
+    {
+        var table = new byte[256];
+        for (int s = 0; s < 256; s++)
+            for (int k = 0; k < 4; k++)
+                table[s] |= (byte)(((s >> (2 * k + first)) & 1) << k);
+        return table;
+    }
+
+    /// <summary>
+    /// Splits the two index-pair symbols of pixel row <paramref name="y"/> (BC6H lanes 11..14, BC7 index lanes) into the
+    /// four zigzag index deltas of that row; the last row has its even/odd bits swapped.
+    /// </summary>
+    internal static (int D0, int D1, int D2, int D3) DeinterleaveRow(int symbolA, int symbolB, int y) =>
+        y < 3
+            ? (OddBits[symbolA], EvenBits[symbolA], OddBits[symbolB], EvenBits[symbolB])
+            : (EvenBits[symbolA], OddBits[symbolA], EvenBits[symbolB], OddBits[symbolB]);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int InterleaveNibbles(int lowNibble, int highNibble)
@@ -797,7 +831,7 @@ public static class BcpackDecoder
     private static ulong PackRow12(byte left, byte right) => (uint)(left | (right << 6));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int LooseUnknownBlockLimit(int blockCount) => Math.Max(2, blockCount / 1024);
+    internal static int LooseUnknownBlockLimit(int blockCount) => Math.Max(2, blockCount / 1024);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void WriteUInt48LittleEndian(Span<byte> dest, ulong value)

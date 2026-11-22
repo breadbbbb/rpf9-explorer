@@ -101,7 +101,8 @@ public static class TtpfReader
         if ((long)width * height > 16 * 1024 * 1024) throw new NotSupportedException("No bounded thumbnail mip is available.");
         using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (input.Length != source.Info.SourceLength) throw new IOException("Texture pool changed.");
-        byte[] linear = ReadMip(input, source, native, level, 0, new(), cancellationToken, allowProvisional);
+        (byte[] linear, level) = ReadPreviewMip(input, source, native, level, 0, cancellationToken, allowProvisional);
+        width = Math.Max(1, t.Width >> level); height = Math.Max(1, t.Height >> level);
         return RageTextureDecoder.DecodeLinearTexturePixels(linear, width, height, t.DxgiFormat);
     }
 
@@ -111,16 +112,35 @@ public static class TtpfReader
     public static byte[] CreateDds(string path, int index, bool allowProvisional, CancellationToken cancellationToken = default)
     {
         var source = ReadIndex(path, cancellationToken); var native = Select(source, index);
-        var t = native.Info; var layout = native.Layout!;
+        var t = native.Info;
         using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (input.Length != source.Info.SourceLength) throw new IOException("The texture pool changed while it was being read.");
         var cache = new Dictionary<int, byte[]>();
-        using var output = new MemoryStream(checked((int)t.DdsSize));
-        using var writer = new BinaryWriter(output, Encoding.UTF8, true);
+        int first = t.BaseMipLevel, end = t.BaseMipLevel + t.Mips;
+        while (true)
+        {
+            int reading = first;
+            try { return WriteDds(input, source, native, first, end, cache, cancellationToken, allowProvisional, ref reading); }
+            // Strict mode refuses a BCPack chunk that needs unconfirmed or unknown built-in history. The mip it
+            // belongs to and every larger mip are dropped and the export starts at the next smaller mip.
+            catch (BcpackProvisionalException) when (!allowProvisional && reading + 1 < end) { first = reading + 1; }
+        }
+    }
+
+    private static byte[] WriteDds(FileStream input, Index source, Native native, int first, int end, Dictionary<int, byte[]> cache,
+        CancellationToken cancellationToken, bool allowProvisional, ref int reading)
+    {
+        var t = native.Info with { BaseMipLevel = first, Mips = end - first }; var layout = native.Layout!;
         bool bc = RageTextureDecoder.IsBlockCompressed(t.DxgiFormat), volume = t.Dimension == 3, cube = t.Dimension == 2;
+        long expected = 148;
+        for (int mip = first; mip < end; mip++)
+            expected = checked(expected + (long)LinearBytes(layout.Mips[mip], layout.ElementBytes) * (volume ? Math.Max(1, t.Depth >> mip) : t.Depth));
+        if (first == native.Info.BaseMipLevel && expected != native.Info.DdsSize) throw new InvalidDataException("Generated DDS length disagrees with the inspected texture.");
+        using var output = new MemoryStream(checked((int)expected));
+        using var writer = new BinaryWriter(output, Encoding.UTF8, true);
         writer.Write("DDS "u8); writer.Write(124); writer.Write((bc ? 0xA1007 : 0x2100F) | (volume ? 0x800000 : 0));
         writer.Write(t.ExportHeight); writer.Write(t.ExportWidth);
-        writer.Write(bc ? LinearBytes(layout.Mips[t.BaseMipLevel], layout.ElementBytes) : t.ExportWidth * layout.ElementBytes);
+        writer.Write(bc ? LinearBytes(layout.Mips[first], layout.ElementBytes) : t.ExportWidth * layout.ElementBytes);
         writer.Write(volume ? t.ExportDepth : 0); writer.Write(t.Mips); writer.Write(new byte[44]);
         writer.Write(32); writer.Write(4); writer.Write(0x30315844); writer.Write(new byte[20]);
         writer.Write((t.Mips > 1 ? 0x401008 : 0x1000) | (volume || cube || t.Depth > 1 ? 8 : 0));
@@ -129,17 +149,23 @@ public static class TtpfReader
         writer.Write(volume ? 1 : cube ? t.Depth / 6 : t.Depth); writer.Write(0);
         if (volume)
         {
-            for (int mip = t.BaseMipLevel; mip < t.BaseMipLevel + t.Mips; mip++)
+            for (int mip = first; mip < end; mip++)
                 for (int z = 0; z < Math.Max(1, t.Depth >> mip); z++)
+                {
+                    reading = mip;
                     writer.Write(ReadMip(input, source, native, mip, z, cache, cancellationToken, allowProvisional));
+                }
         }
         else
         {
             for (int slice = 0; slice < t.Depth; slice++)
-                for (int mip = t.BaseMipLevel; mip < t.BaseMipLevel + t.Mips; mip++)
+                for (int mip = first; mip < end; mip++)
+                {
+                    reading = mip;
                     writer.Write(ReadMip(input, source, native, mip, slice, cache, cancellationToken, allowProvisional));
+                }
         }
-        if (output.Length != t.DdsSize) throw new InvalidDataException("Generated DDS length disagrees with the inspected texture.");
+        if (output.Length != expected) throw new InvalidDataException("Generated DDS length disagrees with the inspected texture.");
         return output.ToArray();
     }
 
@@ -154,8 +180,8 @@ public static class TtpfReader
         if (!t.CanPreview) throw new NotSupportedException(t.Limitation ?? "No supported mip fits the preview output limit.");
         using var input = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (input.Length != source.Info.SourceLength) throw new IOException("The texture pool changed while it was being read.");
-        byte[] linear = ReadMip(input, source, native, t.PreviewMipLevel, slice, new(), cancellationToken, allowProvisional);
-        return RageTextureDecoder.DecodeLinearTexturePixels(linear, t.PreviewWidth, t.PreviewHeight, t.DxgiFormat);
+        (byte[] linear, int level) = ReadPreviewMip(input, source, native, t.PreviewMipLevel, slice, cancellationToken, allowProvisional);
+        return RageTextureDecoder.DecodeLinearTexturePixels(linear, Math.Max(1, t.Width >> level), Math.Max(1, t.Height >> level), t.DxgiFormat);
     }
 
     internal static Index ReadIndex(string path, CancellationToken ct)
@@ -351,7 +377,7 @@ public static class TtpfReader
             ["Top-mip-only exports"] = native.Count(x => x.Info.TopOnly).ToString("N0"),
             ["Lower-mip-only exports"] = native.Count(x => x.Info.CanExtract && x.Info.BaseMipLevel > 0).ToString("N0"),
             ["Source access"] = "Read-only; requested chunks only; zlib checksums and BCPack rANS streams checked on use",
-            ["Remaining layouts"] = "Unvalidated storage profiles, unsupported formats, and unsupported BCPack codecs (BC6H/BC7) remain unavailable"
+            ["Remaining layouts"] = "Unvalidated storage profiles and unsupported formats remain unavailable; BC6H/BC7 BCPack chunks that need the built-in initial history are refused in strict mode and exported from the next smaller mip"
         };
         var result = new TtpfInfo(path, fileSize, virtualSize, 634, native.Select(x => x.Info).ToArray(), metadata);
         return new(result, chunks, native);
@@ -477,6 +503,19 @@ public static class TtpfReader
         layout.Volume ? checked(baseOffset + (long)(slice / layout.BlockDepth) * layout.ZBlockStride + m.Offset)
         : layout.MipMajorSlices ? checked(baseOffset + m.Offset + (long)slice * m.RegionSize)
         : checked(baseOffset + layout.DataOffset + (long)slice * layout.SliceBytes + m.Offset);
+
+    /// <summary>Reads a preview mip; in strict mode a mip whose BCPack chunk is refused falls back to the next smaller mip.</summary>
+    private static (byte[] Linear, int Level) ReadPreviewMip(FileStream input, Index source, Native native, int level, int slice,
+        CancellationToken ct, bool allowProvisional)
+    {
+        int last = native.Info.BaseMipLevel + native.Info.Mips - 1;
+        var cache = new Dictionary<int, byte[]>();
+        while (true)
+        {
+            try { return (ReadMip(input, source, native, level, slice, cache, ct, allowProvisional), level); }
+            catch (BcpackProvisionalException) when (!allowProvisional && level < last) { level++; }
+        }
+    }
 
     private static byte[] ReadMip(FileStream input, Index source, Native native, int mip, int slice, Dictionary<int, byte[]> cache, CancellationToken ct, bool allowProvisional = false)
     {

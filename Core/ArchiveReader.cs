@@ -55,7 +55,7 @@ public static class ArchiveReader
         foreach (var pair in pool.Metadata) metadata[pair.Key] = pair.Value;
         metadata["Offset column"] = "Virtual pool offsets; stored bytes may share compressed source chunks";
         return new(path, "RDS5", length, entries, metadata,
-            "Native texture catalog; generated names. Supported rows export standard DDS files (including BCPack BC1/BC3/BC4/BC5). Unmapped shard records, unsupported storage layouts and unsupported BCPack codecs (BC6H/BC7) remain unavailable. Opaque catalog IDs are not decoded filenames.", header, true) { TexturePool = pool };
+            "Native texture catalog; generated names. Supported rows export standard DDS files (including BCPack BC1/BC3/BC4/BC5/BC6H/BC7; BC6H/BC7 mips that need BCPack's built-in initial history are skipped and the export starts at the next smaller mip). Unmapped shard records and unsupported storage layouts remain unavailable. Opaque catalog IDs are not decoded filenames.", header, true) { TexturePool = pool };
     }
 
     private static ArchiveDocument OpenRpf9(string path, long length, byte[] header, string unavailable)

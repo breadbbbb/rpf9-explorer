@@ -131,10 +131,11 @@ mip. Format/resolution notes are displayed.
 
 Streaming textures: open or drop an RDS5 .ttpf pool to browse its native ETPF634
 catalog. Validated 2D, compact, array, cubemap and 3D-volume allocations with
-stored, zlib or BCPack (BC1/BC3/BC4/BC5) chunks preview and export DDS. Some
+stored, zlib or BCPack (BC1/BC3/BC4/BC5/BC6H/BC7) chunks preview and export DDS. Some
 textures export only their supported mips; the app and DDS header identify that
 accurately. Catalog IDs are opaque and original filename semantics remain unknown.
-Unsupported BCPack codecs (BC6H/BC7), unvalidated storage profiles and unsupported
+BC6H/BC7 chunks that need BCPack's built-in initial history are refused and those
+textures export from the next smaller mip. Unvalidated storage profiles and unsupported
 formats are listed with their limitations. Original filenames remain unknown;
 supported external diffuse material references use the separately validated native
 64-bit asset keys.

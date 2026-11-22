@@ -51,7 +51,7 @@ Expand an archive and its folders under **Sources and textures**, then expand a 
 
 The texture selector above the preview switches between images in the same dictionary. Arrays, cube maps, and volumes also have a slice or face selector where supported. **Export DDS** saves the texture in DDS format, including the available mip levels.
 
-Supported TTPF layouts include compact 2D mip chains, 2D arrays, streaming cube maps, and single-mip 3D volumes, including Xbox BCPack BC1, BC3, BC4, and BC5 chunks. The preview can select individual slices or faces, and DDS exports preserve the supported texture shape. R16G16B16A16_UNORM previews retain the original 16-bit channels in DDS exports. Unvalidated storage profiles, unsupported formats, and unsupported BCPack codecs (BC6H/BC7) remain unavailable. These additional layouts and BCPack-compressed textures are read-only; they do not add native replacement support.
+Supported TTPF layouts include compact 2D mip chains, 2D arrays, streaming cube maps, and single-mip 3D volumes, including Xbox BCPack BC1, BC3, BC4, BC5, BC6H, and BC7 chunks. The preview can select individual slices or faces, and DDS exports preserve the supported texture shape. R16G16B16A16_UNORM previews retain the original 16-bit channels in DDS exports. Unvalidated storage profiles and unsupported formats remain unavailable. BC6H and BC7 decode without BCPack's built-in initial history, so a mip whose chunk needs that history is refused in the default strict mode and the export starts at the next smaller mip. These additional layouts and BCPack-compressed textures are read-only; they do not add native replacement support.
 
 Streaming textures may have generated names based on native keys. These are not claimed to be their original filenames.
 
@@ -77,7 +77,7 @@ Model recovery also supports fragments with absent optional header pointers, sup
 
 Use **Scan entire archive** to rebuild a saved model index after a decoder update. Model recovery supports RPF9 resources with small uncompressed metadata or geometry tails alongside their zlib blocks.
 
-Some models still have missing or unsupported material bindings, even when the pools are loaded. Unsupported Xbox BCPack codecs (BC6H/BC7) remain unavailable. Full game shaders, palette effects, animation, and skeleton transforms are not reproduced.
+Some models still have missing or unsupported material bindings, even when the pools are loaded. BC6H/BC7 BCPack chunks that need BCPack's built-in initial history remain unavailable. Full game shaders, palette effects, animation, and skeleton transforms are not reproduced.
 
 ## Play movies and audio
 
