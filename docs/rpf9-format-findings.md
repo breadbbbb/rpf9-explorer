@@ -2,11 +2,11 @@
 
 The protected headers of three local GTA 6 RPF9 samples were decoded in a separate research tool. Two implementations agreed byte for byte on the resulting headers. One implementation was checked against 64 block transform inputs from an isolated emulation run.
 
-| Sample | Header bytes | Entry slots |
-| --- | ---: | ---: |
-| `appdata0.rpf` | 864 | 2 |
-| `common.rpf` | 38,272 | 418 |
-| `packs.rpf` | 17,744 | 172 |
+| Header bytes | Entry slots |
+| ---: | ---: |
+| 864 | 2 |
+| 38,272 | 418 |
+| 17,744 | 172 |
 
 The header uses three transform stages in these samples. The first stage chains across two metadata spans. It reveals the descriptor used for the remaining two spans, each of which starts with fresh chaining state.
 
@@ -16,13 +16,13 @@ The decoded index declares six record tables. Each entry has indices into those 
 
 The local research reader now uses the index to find member offsets and sizes. It validated every chunked member in the three root samples against its declared decoded length. Compressed chunks also passed zlib checksum validation.
 
-| Sample | Validated chunked members | Members requiring a counter transform | Nested RPF headers decoded |
-| --- | ---: | ---: | ---: |
-| `appdata0.rpf` | 2 | 2 | 0 |
-| `common.rpf` | 418 | 149 | 0 |
-| `packs.rpf` | 113 | 11 | 59 |
+| Header bytes | Validated chunked members | Members requiring a counter transform | Nested RPF headers decoded |
+| ---: | ---: | ---: | ---: |
+| 864 | 2 | 2 | 0 |
+| 38,272 | 418 | 149 | 0 |
+| 17,744 | 113 | 11 | 59 |
 
-The 59 nested headers in `packs.rpf` contain 80,298 entry slots. The local reader checked all 485 nested data members and all 79,813 resource payloads. The full resource pass produced 9,722,110,144 decoded bytes. All 143,017 zlib chunks passed checksum validation, all 1,157 raw chunks matched their declared sizes, and every payload matched its declared system and graphics lengths.
+The 59 nested headers contain 80,298 entry slots. The local reader checked all 485 nested data members and all 79,813 resource payloads. The full resource pass produced 9,722,110,144 decoded bytes. All 143,017 zlib chunks passed checksum validation, all 1,157 raw chunks matched their declared sizes, and every payload matched its declared system and graphics lengths.
 
 The reader also decoded the indexes of 22 standalone RPF9 files, including the animation, audio, level, movie, shader, and texture archives. The 6,534 top-level slots in this survey include 5,150 directly stored members, 1,383 chunked data members, and one chunked resource. All 1,384 chunked payloads passed their length and codec checks.
 
@@ -60,11 +60,11 @@ Encrypted resources have a 16-byte clear prefix. The counter starts at the first
 
 ## Resource checks
 
-In 46 system-only entries from three child archives in `levels.rpf` and `anim.rpf`, the decoded bytes at offset `0x10` spell `0DRP`. The next little-endian word contains version 122. The root block number at `0x20` is one-based. The system pointer at `0x38` and the count at `0x4C` locate a directory of 16-byte records. Each record holds a type hash, a byte length and a system pointer. Subtracting `0x50000000` from those pointers locates the blocks within the decoded system section.
+In 46 system-only entries from three child archives, the decoded bytes at offset `0x10` spell `0DRP`. The next little-endian word contains version 122. The root block number at `0x20` is one-based. The system pointer at `0x38` and the count at `0x4C` locate a directory of 16-byte records. Each record holds a type hash, a byte length and a system pointer. Subtracting `0x50000000` from those pointers locates the blocks within the decoded system section.
 
 The structure table at the pointer in `0x28` describes root fields by hash, type and byte offset. In one level resource, the root schema described an array at offset `0x18` with 19 items starting at block 2. The preview reports field hashes directly. An array's purpose and the names of its fields still require a matching schema dictionary.
 
-Eight sampled fragments from `levels.rpf` contained 15 populated drawables. The count at fragment offset `0x30` includes the primary record. Additional records are spaced `0x110` bytes apart from the primary. Two samples had an empty primary, and one had two populated children alongside its primary. Explicit selection and enumeration produced identical OBJ geometry for each populated record. The role of the child geometry in the game remains unknown.
+Eight sampled fragments contained 15 populated drawables. The count at fragment offset `0x30` includes the primary record. Additional records are spaced `0x110` bytes apart from the primary. Two samples had an empty primary, and one had two populated children alongside its primary. Explicit selection and enumeration produced identical OBJ geometry for each populated record. The role of the child geometry in the game remains unknown.
 
 ## Header signatures
 
@@ -76,4 +76,4 @@ The index stores 32-bit and 64-bit hashes of relative paths. Lookup treats recog
 
 Searching executable strings and decoded metadata produced candidates for 5,608 of the 6,534 standalone slots. Of those, 1,378 match both hashes and the entry type, including all 797 indexed movies. Another 4,230 child archive candidates match their available 64-bit hash and entry type. Some script matches identify a name stem and extension family. Original casing and unmatched paths remain unresolved.
 
-Testing 458,892 unambiguous typed path candidates from the local metadata against the 1,248,505 nested slots produced no additional path matches. Drawable and fragment resources can carry their own model labels, and drawable dictionaries can carry several child labels. Across the 59 children of `packs.rpf`, the desktop reader found embedded names for all 27,288 recognized model entries, with 27,484 labels across those entries. These labels are searchable. Original archive paths and archive rebuilding remain open areas of work. See the [desktop decoder guide](rpf9-index-provider.md).
+Testing 458,892 unambiguous typed path candidates from the local metadata against the 1,248,505 nested slots produced no additional path matches. Drawable and fragment resources can carry their own model labels, and drawable dictionaries can carry several child labels. Across the 59 child archives in the three-sample study, the desktop reader found embedded names for all 27,288 recognized model entries, with 27,484 labels across those entries. These labels are searchable. Original archive paths and archive rebuilding remain open areas of work. See the [desktop decoder guide](rpf9-index-provider.md).

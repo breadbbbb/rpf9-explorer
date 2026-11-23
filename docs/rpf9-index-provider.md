@@ -12,15 +12,15 @@ Keep archives, workspace files, decoder inputs, and extraction destinations on l
 
 ## Configuration
 
-The desktop app runs the Python interpreter and bridge script selected in the configuration. Use local absolute paths and only configure a script you trust. The bridge script, its dependencies, the game executable, and any optional name dictionary must already be on your machine.
+The desktop app runs the Python interpreter and bridge script selected in the configuration. Replace each placeholder below with an absolute local path, using forward slashes or doubled backslashes in the JSON strings. Only configure a script you trust. The bridge script, its dependencies, the game executable, and any optional name dictionary must already be on your machine.
 
 ```json
 {
   "version": 1,
-  "python": "C:/local-decoder/python.exe",
-  "script": "C:/local-decoder/rpf9_desktop_bridge.py",
-  "executable": "C:/local-decoder/game_scarlett_master.exe",
-  "names": "C:/local-decoder/name-matches.json"
+  "python": "<Python interpreter path>",
+  "script": "<bridge script path>",
+  "executable": "<game executable path>",
+  "names": "<name dictionary path>"
 }
 ```
 

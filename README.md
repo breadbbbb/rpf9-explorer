@@ -16,7 +16,7 @@ This project is not affiliated with, endorsed by, or sponsored by Rockstar Games
 
 ## Open files or a folder
 
-Extract the Windows build ZIP and run `rpf9-explorer.exe`. Keep the `Tools` and `Licenses` folders beside it.
+Extract the Windows build ZIP and launch the rpf9-explorer desktop app. Keep the `Tools` and `Licenses` folders beside the application.
 
 - Click **Open** or press **Ctrl+O** to select one or more `.rpf`, `.ttpf`, or `.zip` files.
 - Click **Open folder** to find supported files in a folder and its subfolders.
@@ -69,7 +69,7 @@ Use the **Dark mode** switch at the top right to change the app's appearance. Bu
 
 Supported vehicle shaders use approximate paint, tyre, glass, lens, and light materials. Select a vehicle fragment with recognized skeleton wheel mounts, then choose **Assemble vehicle**. Load the relevant wheel and brake resources into the same workspace first. **Export OBJ** saves the assembled geometry.
 
-An optional `vehicles.json` beside the source archive or app can provide model configuration, paint color, wheel scales, and part names. Without a matching configuration, assembly can use generic available rims and tyres. These are preview approximations; they do not reproduce the game's complete paint system or prove an authored vehicle configuration. Missing textures and unsupported native shaders can remain unresolved.
+An optional vehicle configuration beside the source archive or app can provide paint color, wheel scales, and part names. Without a matching configuration, assembly can use generic available rims and tyres. These are preview approximations; they do not reproduce the game's complete paint system or prove an authored vehicle configuration. Missing textures and unsupported native shaders can remain unresolved.
 
 ## Preview models
 
@@ -89,7 +89,7 @@ Open an indexed RPF9 archive and double-click a child archive to browse its cont
 
 Choose **Metadata** or search for `format:0drp` to find recognized version 122 metadata. The **Structure** tab lists the numbered data blocks, marks the root, and shows field hashes and offsets from its structure definition. Supported array fields show an item count and the block they reference. **Hex** shows the beginning of the decoded resource. You can also drop an extracted 0DRP resource into the app without configuring an archive decoder. Detailed metadata inspection supports up to 16 MiB.
 
-Character parts inside drawable dictionaries appear as individual model results using their native names. Searching `lucia` can find explicitly named Lucia parts, while shared body parts and player components may have names such as `hand_fr1`, `feet_fr1`, or `player_story000_00`. Free-text searches for `body`, `arms` or `legs` also include the shared skin components. These names do not by themselves identify an authored character or outfit. Different detail variants may share a name; source offsets distinguish them.
+Character parts inside drawable dictionaries appear as individual model results using their native names. Search for a character by name, or use `body`, `arms` or `legs` to include shared skin components. Different detail variants may share a name. Use the source offset to distinguish them.
 
 Use **Add selected parts** to collect model components across different searches. **Preview queued parts** overlays the collected components in their original coordinates and keeps their supported texture bindings. **Clear parts** empties the queue. You can also Ctrl- or Shift-select two or more visible rows and click **Preview together**. **Assembly details** lists every component, omitted selection, source and material mapping. Manual selection does not infer an outfit or fill in missing body parts. Alternate clothes and detail variants can overlap.
 
@@ -99,7 +99,7 @@ Use **Add selected parts** to collect model components across different searches
 
 Load the relevant texture pools if a model appears gray. The text below the preview reports missing materials, lower-resolution mip levels, and layered-material approximations. Layered materials show the first available supported color layer. Some distant models use their native vertex colors when they have no UV coordinates.
 
-For an unfinished download, the model archive can be complete while its sibling texture pools still contain missing regions. Finish downloading the relevant files in `data/ttdb/peds` for character textures, then select the model or assemble the outfit again. The app checks changed texture pools on the next preview. Empty compressed chunks and unreadable pool indexes are reported in the assembly details.
+For an unfinished download, the model archive can be complete while its sibling texture pools still contain missing regions. Finish downloading the character texture pools, then select the model or assemble the outfit again. The app checks changed texture pools on the next preview. Empty compressed chunks and unreadable pool indexes are reported in the assembly details.
 
 Some outfit materials have a native SLOD color intended for distant views. If no color image is available, supported opaque appearances can use that value as a uniform color approximation. Supported palette selections also use their native palette SLOD color when all three selected tint channels agree. This does not reproduce surface texture detail or full palette shading. The app counts these separately from textured mesh parts. Composite appearances and ambiguous material assignments remain unresolved. Normal, specular and material ID maps are not used as substitute color textures.
 
@@ -148,13 +148,15 @@ Extraction exports the original assets. Staged replacements are stored separatel
 `rpf9-cli` searches and exports assets without opening the desktop app. It accepts the same sources as **Open folder** and reuses the recovery scans the app has already saved, so a source that was scanned once opens quickly.
 
 ```powershell
-rpf9-cli search D:\Game\packs.rpf -q vicki
-rpf9-cli export D:\Game -q "cs_vicki_" --best --merge vicki -o D:\Exports\vicki
-rpf9-cli export D:\Game --id 75B33ED2:0065B40010:440,75B33ED2:0080C04010:700 -o D:\Exports\parts
-rpf9-cli export D:\Game\textures.rpf -t textures -q blip_ -o D:\Exports\blips
-rpf9-cli kits D:\Game -q tanktop --complete
-rpf9-cli export D:\Game --kit BC6060BB --merge outfit -o D:\Exports\outfit
-rpf9-cli scan D:\Game --kinds textures,psin
+$source = Read-Host "Source archive or folder"
+$out = Read-Host "Export folder"
+rpf9-cli search $source -q "type:model"
+rpf9-cli export $source -q (Read-Host "Model search term") --best --merge assembly -o "$out\assembly"
+rpf9-cli export $source --id (Read-Host "Asset IDs from search, separated by commas") -o "$out\parts"
+rpf9-cli export $source -t textures -q "name:glass" -o "$out\textures"
+rpf9-cli kits $source --complete
+rpf9-cli export $source --kit (Read-Host "Kit ID from the list") --merge outfit -o "$out\outfit"
+rpf9-cli scan $source --kinds textures,psin
 ```
 
 - `search` prints an ID, type, size, source and name for each match. Add `--json` for machine-readable output. An ID names one source, entry and subresource: a source tag, then the offset (and drawable child or texture index), or the entry index where offsets repeat.
@@ -162,7 +164,7 @@ rpf9-cli scan D:\Game --kinds textures,psin
 - `kits` lists authored wardrobe kits and the indexed models each one selects. `export --kit <id>` exports a kit with its authored albedo and normal maps, or its SLOD color where no albedo texture is available.
 - `scan` runs the full payload scan on every RPF9 source and saves it to the shared index cache. Kinds that already have a full scan are skipped, `--kinds` limits the scan, and a failing kind does not stop the others.
 - `--query` uses the app's search syntax. `--id` selects exact rows from `search`; an unknown ID stops the export before anything is written. `--best` keeps the largest variant of each name. `--lod` picks a detail level and `--max-texture` limits texture size.
-- Each export folder gets a `manifest.json` that lists every part, the texture source used for each material, and the reason any material or asset could not be exported.
+- Each export folder contains a JSON manifest listing every part, the texture source used for each material, and the reason any material or asset could not be exported.
 - Existing exports are not overwritten unless you add `--overwrite`.
 
 Texture lookup follows the app's model preview: embedded textures, texture dictionaries in the loaded sources, loaded and sibling texture pools, and validated resident defaults. Wardrobe catalogues are read from scanned PSIN metadata; a model whose catalogue states all agree on one albedo uses it even without `--kit`. Normal maps are written in OpenGL (Y+) convention, with the blue channel rebuilt for two-channel sources. Skeletons, morphs and animation are not exported.
@@ -186,24 +188,23 @@ Matching staged texture edits are used when previewing a model. **They are not w
 
 ## Build from source
 
-Install the .NET 10 SDK on Windows. Run these commands from the source folder:
+Install the .NET 10 SDK on Windows. From the repository root, build the desktop app with PowerShell.
 
 ```powershell
-dotnet build App/RpfPreview.App.csproj -c Release
-powershell -ExecutionPolicy Bypass -File ./build.ps1
+dotnet build ./App -c Release
 ```
 
-The publish script creates `dist/rpf9-explorer.exe` and `dist/rpf9-cli.exe` as self-contained Windows x64 builds. NuGet restores the pinned dependencies. To run the command line from source, use `dotnet run --project Cli/RpfPreview.Cli.csproj -c Release -- search <source> -q <text>`.
+Run the PowerShell publish script in the repository root to create self-contained Windows x64 builds of the desktop app and CLI under `dist`. NuGet restores the pinned dependencies. To search from source, use `dotnet run --project ./Cli -c Release -- search $source -q "type:model"`, with `$source` set to your archive or folder.
 
 ### Optional media helpers
 
-`Tools/BinkPreview.cpp`, `Tools/BinkPlayer.cpp`, and `Tools/OpusPreview.cpp` contain the helper source. Their `Build-*.ps1` scripts require Visual C++ and the Windows SDK. Adjust the compiler and SDK paths in those scripts for your installation.
+The `Tools` folder contains the Bink and Opus helper sources and their PowerShell build scripts. The scripts require Visual C++ and the Windows SDK. Set the compiler and SDK paths for your installation.
 
-Bink requires a separately installed licensed Unreal Bink SDK. Opus requires libopus headers and a library. Those external SDKs are not included. Build the helpers before running `build.ps1` to copy them into the published `Tools` folder.
+Bink requires a separately installed licensed Unreal Bink SDK. Opus requires libopus headers and a library. Build the helpers before running the publish script so it can copy them into the published `Tools` folder.
 
 For XMA2 and WAV previews, put an FFmpeg build configured with `--disable-network` and only the `file,pipe` protocols in `Tools` before publishing. The publish script checks both settings. The app loads preview helpers from the local `Tools` folder.
 
-The Windows 1.3 build uses libopus 1.6.1. To use your own static libopus build, pass `-OpusRoot` (the folder containing `include/opus.h`) and `-OpusLibrary` (the x64 `/MT` static library) to `Tools/Build-OpusPreview.ps1`. Compiler and Windows SDK paths can also be supplied as parameters.
+The Windows 1.3 build uses libopus 1.6.1. To use your own static libopus build, pass its installation root to `-OpusRoot` and its x64 `/MT` static library to `-OpusLibrary` when running the Opus helper build script. Compiler and Windows SDK paths can also be supplied as parameters.
 
 Model and texture browsing do not need the media helpers.
 
