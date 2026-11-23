@@ -94,7 +94,10 @@ public sealed class BcpackHistory
         JsonElement root;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+            byte[] bytes = File.ReadAllBytes(file);
+            ReadOnlyMemory<byte> text = bytes.AsMemory();
+            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) text = text[3..];
+            using var doc = JsonDocument.Parse(text);
             root = doc.RootElement.Clone();
         }
         catch (JsonException e) { throw new InvalidDataException($"{file}: {e.Message}", e); }
