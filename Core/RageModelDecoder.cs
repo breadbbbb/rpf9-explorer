@@ -28,6 +28,7 @@ public sealed record RageMaterial(int ShaderIndex, uint ShaderHash, uint PresetH
 public sealed record RageModel(string Name, IReadOnlyList<RageMesh> Meshes, Vector3 BoundsMin, Vector3 BoundsMax)
 {
     public bool IsFragment { get; init; }
+    public int? FragmentDrawableIndex { get; init; }
     public bool IsDictionaryChild { get; init; }
     public Vector3? DeclaredBoundsMin { get; init; }
     public Vector3? DeclaredBoundsMax { get; init; }
@@ -195,6 +196,19 @@ public static class RageModelDecoder
         return primary + FragmentDrawableStride;
     }
 
+    private static bool IsDeclaredFragmentChild(ReadOnlySpan<byte> system, int primary, int offset)
+    {
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(system[48..]);
+        long distance = (long)offset - primary;
+        return primary > 0 && count is > 1 and <= 4096 && (long)primary + (count - 1) * FragmentDrawableStride + 176 <= system.Length &&
+            distance > 0 && distance % FragmentDrawableStride == 0 && distance / FragmentDrawableStride < count &&
+            LooksLikeDrawableHeader(system[offset..], true, allowMissingShader: true);
+    }
+
+    public static int GetFragmentDrawableCount(ReadOnlySpan<byte> system) =>
+        !LooksLikeDrawableDictionary(system) && !LooksLikeDrawable(system) && LooksLikeFragment(system)
+            ? BinaryPrimitives.ReadUInt16LittleEndian(system[48..]) : 0;
+
     public static RageModel? Inspect(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics) => Decode(system, graphics);
 
     public static IReadOnlyList<RageDrawableDictionaryEntry>? InspectDrawableDictionary(ReadOnlySpan<byte> system)
@@ -248,22 +262,42 @@ public static class RageModelDecoder
 
     public static IReadOnlyList<RageModel> DecodeModels(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics)
     {
-        if (!LooksLikeDrawableDictionary(system))
+        bool dictionary = LooksLikeDrawableDictionary(system);
+        if (!dictionary && (!LooksLikeFragment(system) || LooksLikeDrawable(system) ||
+            BinaryPrimitives.ReadUInt16LittleEndian(system[48..]) == 1))
         {
             var model = Decode(system, graphics);
             return model is null ? [] : [model];
         }
-        var children = InspectDrawableDictionary(system);
-        if (children is null || graphics.Length is < 1 or > MaxGraphicsBytes) return [];
+        if (system.Length > MaxSystemBytes || graphics.Length is < 1 or > MaxGraphicsBytes) return [];
+        IEnumerable<int> offsets;
+        if (dictionary)
+        {
+            var children = InspectDrawableDictionary(system);
+            if (children is null) return [];
+            offsets = children.Select(child => child.DrawableOffset);
+        }
+        else
+        {
+            int primary = (int)(BinaryPrimitives.ReadUInt64LittleEndian(system[24..]) - 0x50000000);
+            int count = BinaryPrimitives.ReadUInt16LittleEndian(system[48..]);
+            var drawables = new List<int> { primary };
+            for (int i = 1; i < count; i++)
+            {
+                int offset = primary + i * FragmentDrawableStride;
+                if (IsDeclaredFragmentChild(system, primary, offset)) drawables.Add(offset);
+            }
+            offsets = drawables;
+        }
         var result = new List<RageModel>();
         long vertices = 0, triangles = 0, meshes = 0;
-        foreach (var child in children)
+        foreach (int offset in offsets)
         {
             RageModel? model;
             try
             {
                 var reader = new ModelReader(system, graphics);
-                model = reader.Decode(child.DrawableOffset, true);
+                model = reader.Decode(offset, dictionary);
             }
             catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException or IndexOutOfRangeException)
             { continue; }
@@ -624,7 +658,8 @@ public static class RageModelDecoder
                 Require(LooksLikeFragment(sys));
                 parentName = ReadName(168);
                 int primary = S(24, 176);
-                drawable = SelectFragmentDrawable(sys, primary);
+                drawable = selectedOffset is int requested && IsDeclaredFragmentChild(sys, primary, requested)
+                    ? requested : SelectFragmentDrawable(sys, primary);
                 if (drawable != primary)
                     Require(drawable <= sys.Length - 176 && LooksLikeDrawableHeader(sys[drawable..], true, allowMissingShader: true));
             }
@@ -686,7 +721,8 @@ public static class RageModelDecoder
             }
             return new(name, meshes, previewMin, previewMax)
             {
-                IsFragment = fragment, HasBoneBindings = hasBoneBindings, DrawableOffset = drawable, Lod = lod,
+                IsFragment = fragment, FragmentDrawableIndex = fragment ? (drawable - S(24, 176)) / FragmentDrawableStride : null,
+                HasBoneBindings = hasBoneBindings, DrawableOffset = drawable, Lod = lod,
                 Skeleton = RageSkeleton.ReadForDrawable(sys, drawable),
                 IsDictionaryChild = dictionary, DeclaredBoundsMin = min, DeclaredBoundsMax = max,
                 Materials = materials,

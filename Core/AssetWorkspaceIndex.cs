@@ -14,11 +14,11 @@ public sealed class WorkspaceAsset(ArchiveDocument Document, ArchiveEntry Entry,
     public string Name => Texture?.Name ?? Entry.Name;
     public bool IsTextureChild => Texture != null;
     public bool IsImage => Texture != null || PoolTexture != null || Entry.Extension is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".dds";
-    public string Kind => IsImage ? "image" : Entry.Compression switch { "Recovered model" => "model", "Recovered AWC" => "audio", "Recovered raw deflate shader" => "shader", "Recovered texture dictionary" => "dictionary", "Recovered clip dictionary" => "animation", "Recovered Bink" or "Recovered Bink2" => "video", "Indexed child archive" => "archive", _ => "file" };
+    public string Kind => IsImage ? "image" : Entry.Compression switch { "Recovered model" => "model", "Recovered AWC" => "audio", "Recovered raw deflate shader" => "shader", "Recovered texture dictionary" => "dictionary", "Recovered clip dictionary" => "animation", "Recovered Bink" or "Recovered Bink2" => "video", "Indexed child archive" => "archive", RageResourceMetadata.EntryKind => "metadata", _ => "file" };
     public long Size => Texture is { } t ? RageTextureDecoder.DdsFileSize(t) : Entry.Size;
     public int Width => Texture?.Width ?? PoolTexture?.Width ?? 0;
     public int Height => Texture?.Height ?? PoolTexture?.Height ?? 0;
-    public string Format => Texture?.Format ?? PoolTexture?.Format ?? Entry.Extension;
+    public string Format => Texture?.Format ?? PoolTexture?.Format ?? (Entry.Compression == RageResourceMetadata.EntryKind ? "0DRP" : Entry.Extension);
     public int Mips => Texture?.MipCount ?? PoolTexture?.SourceMips ?? 0;
     public int SubresourceIndex => Texture?.Index ?? PoolTexture?.Index ?? -1;
     public bool Available => Entry.CanExtract;

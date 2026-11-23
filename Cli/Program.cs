@@ -10,7 +10,7 @@ const string usage = """
       rpf9-cli scan <source>... [options]
       rpf9-cli help <command>
 
-    Sources are .rpf archives, .ttpf texture pools, .zip files or folders that contain them.
+    Sources include .rpf archives, .ttpf texture pools, ZIP files, decoded 0DRP metadata and folders.
     Recovery scans saved by the desktop app are reused automatically.
 
     Exit codes: 0 success, 1 failure, 2 invalid usage, 3 nothing matched, 130 cancelled.

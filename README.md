@@ -81,6 +81,14 @@ Drag with the left mouse button to orbit, drag with the right mouse button to pa
 
 Core integrations can call `RageModelDecoder.Decode(system, graphics, drawableOffset, lod)` with `lod` from 0 to 3 to choose a model's level of detail. The returned model records the selection in `Lod`. Individual model previews use LOD 0. Wardrobe assembly chooses the most detailed readable native variant within its preview limits. An unavailable LOD returns `null`.
 
+Some fragments contain several drawables. Use the selector in the Model tab to switch between the primary and its children. **Export OBJ** saves the displayed drawable. In Core, `DecodeModels` returns readable drawables in record order. Each fragment model exposes its `FragmentDrawableIndex` and `DrawableOffset`.
+
+### Inspect RAGE resources
+
+Open an indexed RPF9 archive and double-click a child archive to browse its contents. Select a generic RAGE resource to see where its system and graphics sections begin and how many bytes each occupies. Geometry, textures and other supported assets open in their existing viewers.
+
+Choose **Metadata** or search for `format:0drp` to find recognized version 122 metadata. The **Structure** tab lists the numbered data blocks, marks the root, and shows field hashes and offsets from its structure definition. Supported array fields show an item count and the block they reference. **Hex** shows the beginning of the decoded resource. You can also drop an extracted 0DRP resource into the app without configuring an archive decoder. Detailed metadata inspection supports up to 16 MiB.
+
 Character parts inside drawable dictionaries appear as individual model results using their native names. Searching `lucia` can find explicitly named Lucia parts, while shared body parts and player components may have names such as `hand_fr1`, `feet_fr1`, or `player_story000_00`. Free-text searches for `body`, `arms` or `legs` also include the shared skin components. These names do not by themselves identify an authored character or outfit. Different detail variants may share a name; source offsets distinguish them.
 
 Use **Add selected parts** to collect model components across different searches. **Preview queued parts** overlays the collected components in their original coordinates and keeps their supported texture bindings. **Clear parts** empties the queue. You can also Ctrl- or Shift-select two or more visible rows and click **Preview together**. **Assembly details** lists every component, omitted selection, source and material mapping. Manual selection does not infer an outfit or fill in missing body parts. Alternate clothes and detail variants can overlap.

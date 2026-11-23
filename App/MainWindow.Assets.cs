@@ -20,6 +20,12 @@ public partial class MainWindow
     private int _ttpfTextureIndex = -1;
     private byte[]? _textureSystem, _textureGraphics;
     private RageModel? _decodedModel;
+    private sealed record FragmentChoice(RageModel Model)
+    {
+        public string Label => Model.FragmentDrawableIndex == 0 ? "Primary drawable" : $"Child drawable {Model.FragmentDrawableIndex}";
+    }
+    private sealed record ModelResource(ArchiveDocument Document, ArchiveEntry Entry, ReadOnlyMemory<byte> System, ReadOnlyMemory<byte> Graphics);
+    private ModelResource? _fragmentResource;
     private AwcInfo? _audioInfo;
     private ArchiveDocument? _audioDocument;
     private ArchiveEntry? _audioEntry;
@@ -33,6 +39,7 @@ public partial class MainWindow
 
     private void ResetAssetPreview()
     {
+        ClearFragmentChoices();
         _activeVehicleContext = null;
         if (AssembleVehicleButton != null) AssembleVehicleButton.Visibility = Visibility.Collapsed;
         ClearModelAssemblyState();
@@ -151,12 +158,53 @@ public partial class MainWindow
             var bytes = ArchiveReader.ReadResourceData(document, entry, token);
             int split = entry.ResourceSystemBytes ?? checked((int)entry.Segments![0].Size);
             if (split <= 0 || split >= bytes.Length) throw new InvalidDataException("Invalid model section boundary.");
-            var model = RageModelDecoder.Decode(bytes.AsSpan(0, split), bytes.AsSpan(split), entry.ResourceDrawableOffset)
-                ?? throw new InvalidDataException("The resource does not contain a supported validated model.");
-            return (Model: model, System: bytes.AsMemory(0, split), Graphics: bytes.AsMemory(split));
+            var resource = new ModelResource(document, entry, bytes.AsMemory(0, split), bytes.AsMemory(split));
+            IReadOnlyList<RageModel> models = [];
+            if (entry.ResourceDrawableOffset == null && RageModelDecoder.GetFragmentDrawableCount(resource.System.Span) > 1)
+                models = RageModelDecoder.DecodeModels(resource.System.Span, resource.Graphics.Span);
+            if (models.Count == 0)
+                models = [RageModelDecoder.Decode(resource.System.Span, resource.Graphics.Span, entry.ResourceDrawableOffset)
+                    ?? throw new InvalidDataException("The resource does not contain a supported validated model.")];
+            return (Resource: resource, Models: models);
         }, token);
         token.ThrowIfCancellationRequested();
-        var model = decoded.Model;
+        if (decoded.Models.Count > 1)
+        {
+            FragmentSelector.ItemsSource = decoded.Models.Select(model => new FragmentChoice(model)).ToArray();
+            FragmentSelector.SelectedIndex = 0;
+            FragmentSelector.Visibility = Visibility.Visible;
+            _fragmentResource = decoded.Resource;
+        }
+        await ShowModelDrawableAsync(decoded.Resource, decoded.Models[0], token);
+    }
+
+    private void ClearFragmentChoices()
+    {
+        _fragmentResource = null;
+        if (FragmentSelector == null) return;
+        FragmentSelector.ItemsSource = null;
+        FragmentSelector.Visibility = Visibility.Collapsed;
+    }
+
+    private async void FragmentSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_busy || _fragmentResource is not { } resource || FragmentSelector.SelectedItem is not FragmentChoice choice) return;
+        _previewCancellation?.Cancel();
+        _previewCancellation?.Dispose();
+        var cancellation = _previewCancellation = new CancellationTokenSource();
+        try
+        {
+            _activePreview = ShowModelDrawableAsync(resource, choice.Model, cancellation.Token);
+            await _activePreview;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { if (!cancellation.IsCancellationRequested) PreviewFootnoteText.Text = ex.Message; }
+    }
+
+    private async Task ShowModelDrawableAsync(ModelResource decoded, RageModel model, CancellationToken token)
+    {
+        var document = decoded.Document;
+        var entry = decoded.Entry;
         _decodedModel = model;
         var wheelMounts = VehicleAssembly.ExtractWheelMounts(decoded.System.Span, model.DrawableOffset);
         UpdateVehicleAssemblyControls(document, entry, model, wheelMounts);
@@ -372,7 +420,9 @@ public partial class MainWindow
     private void ModelExport_Click(object sender, RoutedEventArgs e)
     {
         if (_decodedModel == null) return;
-        var dialog = new SaveFileDialog { Title = "Export displayed model geometry", Filter = "Wavefront OBJ|*.obj", DefaultExt = ".obj", FileName = Path.GetFileNameWithoutExtension(_decodedModel.Name) };
+        string name = Path.GetFileNameWithoutExtension(_decodedModel.Name);
+        if (_decodedModel.FragmentDrawableIndex is int index && index > 0) name += $"_child_{index}";
+        var dialog = new SaveFileDialog { Title = "Export displayed model geometry", Filter = "Wavefront OBJ|*.obj", DefaultExt = ".obj", FileName = name };
         if (dialog.ShowDialog(this) != true) return;
         try
         {

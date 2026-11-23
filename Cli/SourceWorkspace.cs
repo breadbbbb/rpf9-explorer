@@ -5,7 +5,6 @@ namespace RpfPreview.Cli;
 public sealed class SourceWorkspace
 {
     private const int MaxSources = 512;
-    private static readonly string[] SupportedExtensions = [".rpf", ".ttpf", ".zip"];
 
     private SourceWorkspace(IReadOnlyList<ArchiveDocument> documents, AssetWorkspaceIndex index)
     {
@@ -51,13 +50,13 @@ public sealed class SourceWorkspace
             string full = RequireLocal(input);
             if (Directory.Exists(full))
                 paths.AddRange(Directory.EnumerateFiles(full, "*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = LocalPath.RemoteAttributes })
-                    .Where(p => SupportedExtensions.Contains(Path.GetExtension(p).ToLowerInvariant()))
+                    .Where(ArchiveReader.IsWorkspaceSource)
                     .Order(StringComparer.OrdinalIgnoreCase));
             else if (File.Exists(full)) paths.Add(full);
             else throw new UsageException($"Source not found: {input}");
         }
         var distinct = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (distinct.Count == 0) throw new UsageException("No .rpf, .ttpf or .zip files were found in the given sources.");
+        if (distinct.Count == 0) throw new UsageException("No supported archives, texture pools or metadata were found in the given sources.");
         if (distinct.Count > MaxSources) throw new UsageException($"A workspace can hold up to {MaxSources} sources; {distinct.Count:N0} were found.");
         return distinct;
     }

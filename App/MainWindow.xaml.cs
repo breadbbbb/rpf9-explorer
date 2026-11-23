@@ -79,7 +79,7 @@ public partial class MainWindow : Window
     private async void PickArchive()
     {
         if (_busy) return;
-        var dialog = new OpenFileDialog { Title = "Add archives or texture pools", Filter = "Archives and texture pools|*.rpf;*.zip;*.ttpf|All files|*.*", CheckFileExists = true, Multiselect = true };
+        var dialog = new OpenFileDialog { Title = "Add archives, texture pools or metadata", Filter = "Archives, texture pools and metadata|*.rpf;*.zip;*.ttpf;*.0drp;*.r9resource|All files|*.*", CheckFileExists = true, Multiselect = true };
         if (dialog.ShowDialog(this) == true) await OpenSourcesAsync(dialog.FileNames, true);
     }
 
@@ -218,6 +218,18 @@ public partial class MainWindow : Window
             var isMetadata = entry.Extension == ".psin";
             var isShader = entry.Compression == "Recovered raw deflate shader";
             var isClips = entry.Compression == "Recovered clip dictionary";
+            if (entry.Compression == RageResourceMetadata.EntryKind || document.HasDecodedRpf9Index && entry.IsResource &&
+                entry.ResourceSystemBytes.HasValue && !isImage && !isMetadata && !isShader && !isClips)
+            {
+                var resource = await Task.Run(() => RageResourcePreview.Read(document, entry, cancellation.Token), cancellation.Token);
+                if (cancellation.IsCancellationRequested || _document != document) return;
+                TextPreview.Text = resource.Details;
+                HexPreview.Text = FormatHex(resource.Bytes.AsSpan(0, Math.Min(resource.Bytes.Length, 65536)));
+                TextTab.Header = "Structure";
+                PreviewTabs.SelectedItem = TextTab;
+                PreviewFootnoteText.Text = "Section offsets are relative to the decoded resource. Hex shows its first 64 KiB or less.";
+                return;
+            }
             var limit = (isImage || isMetadata || isShader || isClips) && entry.Size <= 16 * 1024 * 1024 ? 16 * 1024 * 1024 : 256 * 1024;
             var bytes = await Task.Run(() => document.ReadPreview(entry, limit, cancellation.Token), cancellation.Token);
             if (cancellation.IsCancellationRequested || _document != document) return;
@@ -478,7 +490,7 @@ public partial class MainWindow : Window
             + (Entry.NameHash32 is { } hash32 ? "\n32-bit name hash: " + hash32 : "")
             + (Asset?.PoolTexture?.PreviewNote is string note ? "\n" + note : "");
         public string OffsetLabel => Entry.Offset.ToString("X10");
-        public string TypeLabel => Asset?.IsTextureChild == true ? "Texture" : Entry.Compression switch { "Recovered AWC" => "Audio bank", "Recovered model" => "Model", "Recovered texture dictionary" => "Texture folder", "RDS5 texture" => "Streaming texture", "Recovered raw deflate shader" => "Native shader", "Recovered clip dictionary" => "Clip dictionary", "Indexed child archive" => "Nested archive", "Indexed resource" => "RAGE resource", _ => Entry.Extension };
+        public string TypeLabel => Asset?.IsTextureChild == true ? "Texture" : Entry.Compression switch { "Recovered AWC" => "Audio bank", "Recovered model" => "Model", "Recovered texture dictionary" => "Texture folder", "RDS5 texture" => "Streaming texture", "Recovered raw deflate shader" => "Native shader", "Recovered clip dictionary" => "Clip dictionary", "Indexed child archive" => "Nested archive", RageResourceMetadata.EntryKind => RageResourceMetadata.EntryKind, "Indexed encrypted resource" or "Indexed resource" => "RAGE resource", _ => Entry.Extension };
         private string IndexedName => Entry.IsNameCandidate || Entry.EmbeddedModelNames.Count == 0 ? Entry.Name
             : Entry.EmbeddedModelNames[0] + (Entry.EmbeddedModelNames.Count > 1 ? $" (+{Entry.EmbeddedModelNames.Count - 1})" : "");
         public string DisplayName => Asset?.Texture?.Name ?? (Asset?.Document.HasDecodedRpf9Index == true ? IndexedName : Entry.ResourceDrawableOffset is int drawable

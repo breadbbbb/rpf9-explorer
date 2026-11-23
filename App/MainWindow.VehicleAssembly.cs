@@ -96,6 +96,7 @@ public partial class MainWindow
                 catch (Exception ex) when (ex is IOException or InvalidDataException or NotSupportedException or ArgumentException) { }
             }
             work.Token.ThrowIfCancellationRequested();
+            ClearFragmentChoices();
             _previewCancellation?.Dispose();
             _previewCancellation = CancellationTokenSource.CreateLinkedTokenSource(work.Token);
             WorkProgress.IsIndeterminate = true;

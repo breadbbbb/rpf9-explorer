@@ -24,7 +24,7 @@ public partial class MainWindow
 
     private static IEnumerable<string> DirectorySources(string path)
         => Directory.EnumerateFiles(LocalPath.Require(path), "*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = LocalPath.RemoteAttributes })
-            .Where(p => Path.GetExtension(p).ToLowerInvariant() is ".rpf" or ".ttpf" or ".zip").Order(StringComparer.OrdinalIgnoreCase);
+            .Where(ArchiveReader.IsWorkspaceSource).Order(StringComparer.OrdinalIgnoreCase);
 
     private async void OpenFolder_Click(object sender, RoutedEventArgs e)
     {
@@ -53,7 +53,7 @@ public partial class MainWindow
             StatusText.Text = "Could not load sources: " + ex.Message;
             return false;
         }
-        if (requested.Length == 0) { StatusText.Text = "No RPF, ZIP or TTPF files were found."; return false; }
+        if (requested.Length == 0) { StatusText.Text = "No supported archives, texture pools or metadata were found."; return false; }
         if (requested.Length > 512) { StatusText.Text = "Open at most 512 sources in a workspace."; return false; }
         var loaded = append ? new Dictionary<string, ArchiveDocument>(_documents, StringComparer.OrdinalIgnoreCase) : new(StringComparer.OrdinalIgnoreCase);
         _previewCancellation?.Cancel(); CancelThumbnails(); ClosePlayer();

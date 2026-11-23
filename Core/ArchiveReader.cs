@@ -11,6 +11,21 @@ public static class ArchiveReader
     private const int MaxEntries = 250_000;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
+    public static bool IsWorkspaceSource(string path)
+    {
+        string extension = Path.GetExtension(path).ToLowerInvariant();
+        if (extension is ".rpf" or ".ttpf" or ".zip" or ".0drp") return true;
+        if (extension != ".r9resource") return false;
+        try
+        {
+            using var file = File.Open(LocalPath.Require(path), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            Span<byte> header = stackalloc byte[0x50];
+            return file.Length <= int.MaxValue && file.ReadAtLeast(header, header.Length, false) == header.Length &&
+                RageResourceMetadata.HasHeader(header, (int)file.Length);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+    }
+
     public static VideoInfo? GetVideoInfo(ArchiveDocument document, ArchiveEntry entry)
     {
         ValidateEntry(document, entry);
@@ -35,6 +50,12 @@ public static class ArchiveReader
         uint magic = BinaryPrimitives.ReadUInt32LittleEndian(header);
         if ((magic & 0xffff) == 0x4b50) return OpenZip(path, stream.Length, header);
         if (magic == 0x35534452) return OpenTtpf(path, stream.Length, header);
+        if (stream.Length <= int.MaxValue && RageResourceMetadata.HasHeader(header, (int)stream.Length))
+        {
+            var entry = new ArchiveEntry(ValidateMemberPath(Path.GetFileName(path)), stream.Length, stream.Length, 0,
+                false, false, true, RageResourceMetadata.EntryKind, 0);
+            return new(path, "0DRP", stream.Length, [entry], new Dictionary<string, string> { ["Metadata version"] = "122" }, null, header, true);
+        }
         if (magic == 0x52504637) return OpenRpf7(path, stream, header);
         if (magic == 0x52504639 && indexProvider != null)
             return indexProvider.Open(path, [], 0, stream.Length, Path.GetFileName(path), null, token);
@@ -537,8 +558,7 @@ public static class ArchiveReader
 
     internal static (string? Kind, string[]? Names) IdentifyIndexedResource(FileStream input, ArchiveEntry entry)
     {
-        if (entry.ResourceSystemBytes is not int systemSize || systemSize is < 64 or > RageModelDecoder.MaxSystemBytes
-            || entry.Size <= systemSize || entry.Size > 256L * 1024 * 1024 || entry.Segments is not { Count: > 0 } segments)
+        if (entry.ResourceSystemBytes is not int systemSize || systemSize < 64 || entry.Segments is not { Count: > 0 } segments)
             return default;
         try
         {
@@ -547,6 +567,9 @@ public static class ArchiveReader
             Span<byte> buffer = stackalloc byte[512];
             Span<byte> system = buffer[..Math.Min(buffer.Length, systemSize)];
             content.ReadExactly(system);
+            if (RageResourceMetadata.HasHeader(system, systemSize)) return (RageResourceMetadata.EntryKind, null);
+            if (entry.Size <= systemSize || systemSize > RageModelDecoder.MaxSystemBytes || entry.Size > 256L * 1024 * 1024)
+                return default;
             if (systemSize <= RageTextureDecoder.MaxSystemBytes && RageTextureDecoder.LooksLikeDictionary(system))
             {
                 int inspected = Math.Min(systemSize, 64 * 1024);

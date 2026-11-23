@@ -58,6 +58,14 @@ Across the 22 standalone and 4,351 directly stored child indexes, 1,398 members 
 
 Encrypted resources have a 16-byte clear prefix. The counter starts at the first byte after that prefix. Raw DEFLATE streams end at their declared decoded size and have up to 15 bytes of zero alignment padding. Layout 4 encodes each chunk's decoded length, padded stored length, padding and codec in an eight-byte record.
 
+## Resource checks
+
+In 46 system-only entries from three child archives in `levels.rpf` and `anim.rpf`, the decoded bytes at offset `0x10` spell `0DRP`. The next little-endian word contains version 122. The root block number at `0x20` is one-based. The system pointer at `0x38` and the count at `0x4C` locate a directory of 16-byte records. Each record holds a type hash, a byte length and a system pointer. Subtracting `0x50000000` from those pointers locates the blocks within the decoded system section.
+
+The structure table at the pointer in `0x28` describes root fields by hash, type and byte offset. In one level resource, the root schema described an array at offset `0x18` with 19 items starting at block 2. The preview reports field hashes directly. An array's purpose and the names of its fields still require a matching schema dictionary.
+
+Eight sampled fragments from `levels.rpf` contained 15 populated drawables. The count at fragment offset `0x30` includes the primary record. Additional records are spaced `0x110` bytes apart from the primary. Two samples had an empty primary, and one had two populated children alongside its primary. Explicit selection and enumeration produced identical OBJ geometry for each populated record. The role of the child geometry in the game remains unknown.
+
 ## Header signatures
 
 A separate pass verified the signatures of all 22 standalone headers and all 4,351 observed child headers with the RSA-2048 public key embedded in the analyzed build. The format uses PKCS #1 v1.5 with double SHA-256 over selected header ranges after the first transform. Controlled changes to covered bytes failed verification. These checks cover the signed header ranges. The key came from the local executable and its provenance was not independently established.
