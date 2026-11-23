@@ -66,6 +66,7 @@ public static class RageModelDecoder
     private const int MaxTotalVertices = 2_000_000;
     private const int MaxTotalTriangles = 2_000_000;
     private const int MaxDictionaryChildren = 4096;
+    private const int FragmentDrawableStride = 0x110;
 
     public static bool LooksLikeDrawable(ReadOnlySpan<byte> prefix) => LooksLikeDrawableHeader(prefix, false);
 
@@ -166,18 +167,32 @@ public static class RageModelDecoder
         catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException or IndexOutOfRangeException) { return null; }
     }
 
-    private static bool LooksLikeDrawableHeader(ReadOnlySpan<byte> prefix, bool embedded)
+    private static bool LooksLikeDrawableHeader(ReadOnlySpan<byte> prefix, bool embedded, bool allowMissingShader = false)
     {
         if (prefix.Length < 176 || BinaryPrimitives.ReadUInt64LittleEndian(prefix) != 0) return false;
         ulong pages = BinaryPrimitives.ReadUInt64LittleEndian(prefix[8..]);
         ulong shader = BinaryPrimitives.ReadUInt64LittleEndian(prefix[16..]);
         ulong high = BinaryPrimitives.ReadUInt64LittleEndian(prefix[80..]);
         ulong name = BinaryPrimitives.ReadUInt64LittleEndian(prefix[168..]);
-        if ((embedded ? pages != 0 : !SystemPointer(pages)) || !SystemPointer(shader) || !SystemPointer(high) ||
+        if ((embedded ? pages != 0 : !SystemPointer(pages)) || !SystemPointer(high) ||
+            !(SystemPointer(shader) || (allowMissingShader && shader == 0)) ||
             !(SystemPointer(name) || (embedded && name == 0))) return false;
         Vector3 min = ReadVector(prefix, 48), max = ReadVector(prefix, 64);
         float radius = BinaryPrimitives.ReadSingleLittleEndian(prefix[44..]);
         return ValidBounds(min, max) && float.IsFinite(radius) && radius is >= 0 and < 1_000_000;
+    }
+
+    private static int SelectFragmentDrawable(ReadOnlySpan<byte> system, int primary)
+    {
+        if (primary == 0) throw new InvalidDataException("Missing primary fragment drawable.");
+        var header = system[primary..];
+        if (LooksLikeDrawableHeader(header, true)) return primary;
+
+        int drawableCount = BinaryPrimitives.ReadUInt16LittleEndian(system[48..]);
+        if (drawableCount != 2 || header[..16].IndexOfAnyExcept((byte)0) >= 0 ||
+            header.Slice(80, LodCount * sizeof(ulong)).IndexOfAnyExcept((byte)0) >= 0)
+            throw new InvalidDataException("Unsupported primary fragment drawable.");
+        return primary + FragmentDrawableStride;
     }
 
     public static RageModel? Inspect(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics) => Decode(system, graphics);
@@ -394,20 +409,28 @@ public static class RageModelDecoder
             }
             else
             {
+                bool fragmentChild = false;
                 Fragment = !LooksLikeDrawable(sys);
                 if (Fragment)
                 {
                     Check(LooksLikeFragment(sys));
-                    Name(168); Drawable = S(24, 192);
-                    Check(Drawable != 0 && LooksLikeDrawableHeader(sys[Drawable..], true));
+                    Name(168);
+                    int primary = S(24, 192);
+                    Drawable = SelectFragmentDrawable(sys, primary);
+                    fragmentChild = Drawable != primary;
+                    if (fragmentChild)
+                    {
+                        Cover(Drawable, 192);
+                        Check(LooksLikeDrawableHeader(sys[Drawable..], true, allowMissingShader: true));
+                    }
                 }
-                ProbeDrawable(Drawable);
+                ProbeDrawable(Drawable, fragmentChild);
             }
             Check(GraphicsEnd > 0);
             return new(SystemEnd, GraphicsEnd, true, Drawable, Fragment) { IsDrawableDictionary = Dictionary };
         }
 
-        private void ProbeDrawable(int drawable)
+        private void ProbeDrawable(int drawable, bool allowMissingShader = false)
         {
             Cover(drawable, 192);
             if (U64(drawable + 168) != 0) Name(drawable + 168);
@@ -456,14 +479,17 @@ public static class RageModelDecoder
                     }
                 }
             }
-            int shader = S(drawable + 16, 64);
-            if (U64(shader + 48) != 0)
+            if (!allowMissingShader || U64(drawable + 16) != 0)
             {
-                int descriptor = S(shader + 48, 32);
-                Buffer(S(descriptor, 64));
+                int shader = S(drawable + 16, 64);
+                if (U64(shader + 48) != 0)
+                {
+                    int descriptor = S(shader + 48, 32);
+                    Buffer(S(descriptor, 64));
+                }
+                if (U64(shader + 8) != 0) TextureDictionary(S(shader + 8, 64));
+                ProbeMaterials(shader);
             }
-            if (U64(shader + 8) != 0) TextureDictionary(S(shader + 8, 64));
-            ProbeMaterials(shader);
             if (U64(drawable + 176) != 0)
             {
                 int renderer = S(drawable + 176, 80);
@@ -597,8 +623,10 @@ public static class RageModelDecoder
             {
                 Require(LooksLikeFragment(sys));
                 parentName = ReadName(168);
-                drawable = S(24, 176);
-                Require(drawable != 0 && LooksLikeDrawableHeader(sys[drawable..], true));
+                int primary = S(24, 176);
+                drawable = SelectFragmentDrawable(sys, primary);
+                if (drawable != primary)
+                    Require(drawable <= sys.Length - 176 && LooksLikeDrawableHeader(sys[drawable..], true, allowMissingShader: true));
             }
             if (!dictionary && selectedOffset is not null) Require(selectedOffset == drawable);
             ulong namePointer = BinaryPrimitives.ReadUInt64LittleEndian(sys.Slice(drawable + 168, 8));
@@ -613,8 +641,9 @@ public static class RageModelDecoder
             Require(modelCount is > 0 and <= 256 && modelCount == capacity);
             int list = S(lodGroup, checked(modelCount * 8));
             var meshes = new List<RageMesh>();
-            var materials = ReadMaterials(drawable);
-            var embedded = ReadEmbeddedTextures(drawable);
+            bool hasShaderGroup = BinaryPrimitives.ReadUInt64LittleEndian(sys[(drawable + 16)..]) != 0;
+            var materials = hasShaderGroup ? ReadMaterials(drawable) : null;
+            var embedded = hasShaderGroup ? ReadEmbeddedTextures(drawable) : default;
             var seenModels = new HashSet<int>();
             var seenGeometry = new HashSet<int>();
             for (int mi = 0; mi < modelCount; mi++)
