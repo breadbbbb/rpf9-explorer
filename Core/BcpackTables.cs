@@ -544,11 +544,11 @@ internal static class BcpackTables
         table[255] = new(0, 0, 1, 0, 0, 0, BcpackHistoryStatus.Confirmed);
 
         table[6] = new(12, 24, 11, 7, 14, 6, BcpackHistoryStatus.Provisional);
-        table[9] = new(14, 23, 8, 1, 2, 1, BcpackHistoryStatus.Provisional);
-        table[67] = new(5, 9, 3, 12, 24, 10, BcpackHistoryStatus.Provisional);
-        table[68] = new(16, 29, 13, 7, 13, 5, BcpackHistoryStatus.Provisional);
+        table[9] = new(14, 23, 8, 1, 2, 1, BcpackHistoryStatus.Confirmed);
+        table[67] = new(5, 9, 3, 12, 24, 10, BcpackHistoryStatus.Confirmed);
+        table[68] = new(16, 29, 13, 7, 13, 5, BcpackHistoryStatus.Confirmed);
         table[71] = new(13, 25, 11, 6, 11, 4, BcpackHistoryStatus.Provisional);
-        table[74] = new(16, 31, 12, 4, 8, 2, BcpackHistoryStatus.Provisional);
+        table[74] = new(16, 31, 12, 4, 8, 2, BcpackHistoryStatus.Confirmed);
         table[122] = new(13, 26, 11, 5, 8, 3, BcpackHistoryStatus.Provisional);
         return table;
     }
@@ -601,6 +601,7 @@ internal static class BcpackTables
 
         table[25] = new(81, 50, BcpackHistoryStatus.Provisional);
         table[33] = new(58, 31, BcpackHistoryStatus.Provisional);
+        table[52] = new(217, 182, BcpackHistoryStatus.Confirmed);
         table[77] = new(164, 124, BcpackHistoryStatus.Provisional);
         table[84] = new(204, 140, BcpackHistoryStatus.Provisional);
         table[93] = new(208, 61, BcpackHistoryStatus.Provisional);
@@ -626,7 +627,7 @@ internal static class BcpackTables
         table[185] = new(158, 136, BcpackHistoryStatus.Provisional);
         table[187] = new(105, 12, BcpackHistoryStatus.Provisional);
         table[188] = new(142, 38, BcpackHistoryStatus.Provisional);
-        table[190] = new(43, 25, BcpackHistoryStatus.Provisional);
+        table[190] = new(43, 25, BcpackHistoryStatus.Confirmed);
         table[197] = new(133, 133, BcpackHistoryStatus.Provisional);
         table[200] = new(55, 17, BcpackHistoryStatus.Provisional);
         table[202] = new(82, 43, BcpackHistoryStatus.Provisional);
@@ -744,7 +745,7 @@ internal static class BcpackTables
         table[102] = new(11, 103, 12, 88, BcpackHistoryStatus.Provisional);
         table[103] = new(144, 133, 111, 123, BcpackHistoryStatus.Provisional);
         table[104] = new(189, 200, 65, 52, BcpackHistoryStatus.Provisional);
-        table[105] = new(219, 153, 195, 135, BcpackHistoryStatus.Provisional);
+        table[105] = new(219, 153, 195, 135, BcpackHistoryStatus.Confirmed);
         table[106] = new(150, 110, 138, 98, BcpackHistoryStatus.Provisional);
         table[107] = new(118, 142, 60, 117, BcpackHistoryStatus.Provisional);
         table[108] = new(139, 145, 114, 118, BcpackHistoryStatus.Provisional);
@@ -875,7 +876,7 @@ internal static class BcpackTables
         table[252] = new(130, 130, 125, 124, BcpackHistoryStatus.Provisional);
         table[253] = new(128, 128, 127, 127, BcpackHistoryStatus.Provisional);
         table[254] = new(127, 126, 126, 125, BcpackHistoryStatus.Provisional);
-        table[255] = new(129, 127, 128, 126, BcpackHistoryStatus.Provisional);
+        table[255] = new(129, 127, 128, 126, BcpackHistoryStatus.Confirmed);
         return table;
     }
 
