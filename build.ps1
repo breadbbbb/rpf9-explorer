@@ -22,6 +22,8 @@ if (Test-Path -LiteralPath $rpfOfflineFfmpeg) {
 }
 dotnet publish (Join-Path $rpfProjectRoot 'App\RpfPreview.App.csproj') -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $rpfPublishPath --nologo
 if ($LASTEXITCODE -ne 0) { throw 'rpf9-explorer publish failed.' }
+dotnet publish (Join-Path $rpfProjectRoot 'Cli\RpfPreview.Cli.csproj') -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $rpfPublishPath --nologo
+if ($LASTEXITCODE -ne 0) { throw 'rpf9-cli publish failed.' }
 Copy-Item -LiteralPath (Join-Path $rpfProjectRoot 'README.txt') -Destination (Join-Path $rpfPublishPath 'README.txt')
 Copy-Item -LiteralPath (Join-Path $rpfProjectRoot 'README.md') -Destination (Join-Path $rpfPublishPath 'README.md')
 $rpfScreenshotOutput = Join-Path $rpfPublishPath 'docs\screenshots'

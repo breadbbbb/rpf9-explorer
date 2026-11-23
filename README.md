@@ -135,6 +135,32 @@ Exports are grouped into separate source folders. Existing files are not overwri
 
 Extraction exports the original assets. Staged replacements are stored separately in the workspace.
 
+## Command line
+
+`rpf9-cli` searches and exports assets without opening the desktop app. It accepts the same sources as **Open folder** and reuses the recovery scans the app has already saved, so a source that was scanned once opens quickly.
+
+```powershell
+rpf9-cli search D:\Game\packs.rpf -q vicki
+rpf9-cli export D:\Game -q "cs_vicki_" --best --merge vicki -o D:\Exports\vicki
+rpf9-cli export D:\Game --id 75B33ED2:0065B40010:440,75B33ED2:0080C04010:700 -o D:\Exports\parts
+rpf9-cli export D:\Game\textures.rpf -t textures -q blip_ -o D:\Exports\blips
+rpf9-cli kits D:\Game -q tanktop --complete
+rpf9-cli export D:\Game --kit BC6060BB --merge outfit -o D:\Exports\outfit
+rpf9-cli scan D:\Game --kinds textures,psin
+```
+
+- `search` prints an ID, type, size, source and name for each match. Add `--json` for machine-readable output. An ID names one source, entry and subresource: a source tag, then the offset (and drawable child or texture index), or the entry index where offsets repeat.
+- `export` writes models as OBJ + MTL with PNG color and normal maps, textures as PNG, and other assets as stored files. `--merge` writes every model into one OBJ with each part as its own object. Parts keep their native bind-space coordinates, so character components line up when merged.
+- `kits` lists authored wardrobe kits and the indexed models each one selects. `export --kit <id>` exports a kit with its authored albedo and normal maps, or its SLOD color where no albedo texture is available.
+- `scan` runs the full payload scan on every RPF9 source and saves it to the shared index cache. Kinds that already have a full scan are skipped, `--kinds` limits the scan, and a failing kind does not stop the others.
+- `--query` uses the app's search syntax. `--id` selects exact rows from `search`; an unknown ID stops the export before anything is written. `--best` keeps the largest variant of each name. `--lod` picks a detail level and `--max-texture` limits texture size.
+- Each export folder gets a `manifest.json` that lists every part, the texture source used for each material, and the reason any material or asset could not be exported.
+- Existing exports are not overwritten unless you add `--overwrite`.
+
+Texture lookup follows the app's model preview: embedded textures, texture dictionaries in the loaded sources, loaded and sibling texture pools, and validated resident defaults. Wardrobe catalogues are read from scanned PSIN metadata; a model whose catalogue states all agree on one albedo uses it even without `--kit`. Normal maps are written in OpenGL (Y+) convention, with the blue channel rebuilt for two-channel sources. Skeletons, morphs and animation are not exported.
+
+Run `rpf9-cli help export` for every option. Exit codes: 0 success, 1 failure, 2 invalid usage, 3 nothing matched.
+
 ## Save edits and reopen a workspace
 
 1. Select an asset and click **Stage replacement**.
@@ -159,7 +185,7 @@ dotnet build App/RpfPreview.App.csproj -c Release
 powershell -ExecutionPolicy Bypass -File ./build.ps1
 ```
 
-The publish script creates `dist/rpf9-explorer.exe` as a self-contained Windows x64 build. NuGet restores the pinned dependencies.
+The publish script creates `dist/rpf9-explorer.exe` and `dist/rpf9-cli.exe` as self-contained Windows x64 builds. NuGet restores the pinned dependencies. To run the command line from source, use `dotnet run --project Cli/RpfPreview.Cli.csproj -c Release -- search <source> -q <text>`.
 
 ### Optional media helpers
 
@@ -179,6 +205,7 @@ Model and texture browsing do not need the media helpers.
 | --- | --- |
 | `App` | WPF interface and preview sessions |
 | `Core` | Archive readers, decoders, search, extraction, and edit projects |
+| `Cli` | `rpf9-cli` command-line search and export |
 | `Tools` | Native helper source, build scripts, and the indexing CLI |
 | `docs/screenshots` | Screenshots used in this README |
 

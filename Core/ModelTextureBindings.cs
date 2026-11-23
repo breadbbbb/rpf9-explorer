@@ -25,6 +25,17 @@ public static class ModelTextureBindings
         [1380592926] = new("diffusetexture3", 23, false, true)
     };
 
+    private static readonly IReadOnlyDictionary<uint, (string Name, int Priority)> NormalSlots = new Dictionary<uint, (string, int)>
+    {
+        [0x1E77BF4C] = ("bumptex", 0),
+        [0xD7C38241] = ("bumptexture", 1),
+        [0xCDD79A22] = ("normaltexture", 2),
+        [0x641631D7] = ("normaltex", 3)
+    };
+
+    public static IReadOnlyList<RageTextureReference> NormalTextures(RageMaterial material)
+        => material.Textures.Where(t => NormalSlots.ContainsKey(t.ParameterHash)).OrderBy(t => NormalSlots[t.ParameterHash].Priority).ToArray();
+
     public static IReadOnlyList<ModelColorTexture> ColorTextures(RageMaterial material)
         => material.Textures.Where(t => Slots.ContainsKey(t.ParameterHash)).OrderBy(t => Slots[t.ParameterHash].Priority)
             .Select(t => new ModelColorTexture(t, Slots[t.ParameterHash].Name, Slots[t.ParameterHash].Layered, Slots[t.ParameterHash].Secondary, Slots[t.ParameterHash].Inferred)).ToArray();
