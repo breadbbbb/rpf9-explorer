@@ -28,8 +28,10 @@ public sealed class WorkspaceAsset(ArchiveDocument Document, ArchiveEntry Entry,
     public string ComponentHint => Kind != "model" ? "" : Name.StartsWith("hand_", StringComparison.OrdinalIgnoreCase)
         ? "upper body skin arms hands" : Name.StartsWith("feet_", StringComparison.OrdinalIgnoreCase)
         ? "lower body skin legs feet" : "";
+    private string? _group;
+    public string ContentGroup => _group ??= AssetContent.Group(this);
     private string? _search;
-    public string SearchText => _search ??= string.Join(' ', Name, LogicalPath, SourceName, Kind, Format, Width.ToString(CultureInfo.InvariantCulture), Height.ToString(CultureInfo.InvariantCulture), KeyText, ComponentHint, Entry.NameHash32, Entry.NameHash64, string.Join(' ', Entry.EmbeddedModelNames));
+    public string SearchText => _search ??= string.Join(' ', Name, ContentGroup, LogicalPath, SourceName, Kind, Format, Width.ToString(CultureInfo.InvariantCulture), Height.ToString(CultureInfo.InvariantCulture), KeyText, ComponentHint, Entry.NameHash32, Entry.NameHash64, string.Join(' ', Entry.EmbeddedModelNames));
 }
 
 public sealed record WorkspaceIndexProgress(int Completed, int Total, string Source);

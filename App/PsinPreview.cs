@@ -12,7 +12,7 @@ internal static class PsinPreview
             ?? throw new InvalidDataException("This metadata container is incomplete or uses an unsupported section layout.");
         var text = new StringBuilder();
         text.AppendLine("PSIN binary metadata").AppendLine();
-        text.AppendLine($"Complete container: {MainWindow.FormatSize(inspection.Length)}");
+        text.AppendLine($"Complete container: {inspection.Length:N0} bytes");
         text.AppendLine($"Sections: {inspection.Sections.Count}").AppendLine();
         text.AppendLine("Section   Offset       Bytes");
         text.AppendLine("───────   ──────────   ──────────");

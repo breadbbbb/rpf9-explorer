@@ -8,7 +8,7 @@
     <AssemblyName>rpf9-cli</AssemblyName>
     <RootNamespace>RpfPreview.Cli</RootNamespace>
     <Product>rpf9-explorer</Product>
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>

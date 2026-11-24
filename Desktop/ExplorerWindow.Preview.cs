@@ -38,7 +38,7 @@ public partial class ExplorerWindow
     {
         preview?.Cancel(); preview?.Dispose(); preview = new CancellationTokenSource();
         var token = preview.Token;
-        render?.Cancel(); choiceVersion++; modelView = null; modelBytes = metadata = null; models = []; textures = [];
+        StopPlayback(); mounts=[]; showingAssembly=false; Slice.IsVisible=false; render?.Cancel(); choiceVersion++; modelView = null; modelBytes = metadata = null; models = []; textures = [];
         SetBitmap(null); updating = true;
         Choice.ItemsSource = null; Record.Value = 1; Links.ItemsSource = null; drag = null;
         Choices.IsVisible = Record.IsVisible = Follow.IsVisible = Links.IsVisible = ExportObj.IsVisible = false;
@@ -50,6 +50,8 @@ public partial class ExplorerWindow
         {
             if (!asset.Available) { Details.Text = e.Limitation ?? "This member is unavailable."; return; }
             if (e.IsNestedArchive) { Details.Text = "Open this archive to browse its member table."; return; }
+            if (asset.Kind=="audio") { await SelectBank(asset,token); return; }
+            if (ArchiveReader.GetVideoInfo(doc,e) is {} info) { await OpenMovie(asset,info,token); return; }
             if (asset.Kind is "model" or "dictionary" || asset.Texture != null)
             {
                 var bytes = await Task.Run(() => ArchiveReader.ReadResourceData(doc, e, token), token);
@@ -80,7 +82,7 @@ public partial class ExplorerWindow
             if (asset.PoolTexture is { } pool)
             {
                 var pixels = await Task.Run(() => TtpfReader.DecodeTexturePreview(doc.SourcePath, pool.Index, 2048, token), token);
-                token.ThrowIfCancellationRequested(); SetBitmap(Pixels(pixels)); return;
+                token.ThrowIfCancellationRequested(); SetBitmap(Pixels(pixels)); SetSlices(pool.ExportDepth); UpdateToolStates(); return;
             }
             if (e.Compression == RageResourceMetadata.EntryKind)
             {
@@ -89,6 +91,14 @@ public partial class ExplorerWindow
                 token.ThrowIfCancellationRequested(); metadata = data;
                 SetChoices(meta.Blocks.Select((b, i) => new ChoiceItem(i + 1, $"Block {i + 1}   0x{b.Type:X8}   {SizeText(b.Length)}{(i + 1 == meta.RootBlock ? "   root" : "")}")).ToArray(), meta.RootBlock - 1);
                 await ShowChoice(true); return;
+            }
+            if (asset.Kind is "animation" or "shader" || e.Extension is ".psin" or ".pso" or ".cso" or ".dxbc")
+            {
+                var binary=await Task.Run(()=>doc.ReadPreview(e,16*1024*1024,token),token);
+                token.ThrowIfCancellationRequested();
+                if(asset.Kind=="animation" && Rpf9ClipRecovery.Decode(binary) is {} clips) { Details.Text=$"{clips.Name} · {clips.Animations} animations\n"+string.Join("\n",clips.Clips.Order());return; }
+                if(asset.Kind=="shader" || e.Extension is ".cso" or ".dxbc") { var description=await Task.Run(()=>RpfPreview.App.ShaderPreview.Describe(binary),token);token.ThrowIfCancellationRequested();Details.Text=description;return; }
+                if(binary.AsSpan().StartsWith("PSIN"u8)) {Details.Text=RpfPreview.App.PsinPreview.Describe(binary);return;}
             }
             int limit = asset.IsImage && e.Size <= 16 * 1024 * 1024 ? 16 * 1024 * 1024 : 65536;
             var raw = await Task.Run(() => doc.ReadPreview(e, limit, token), token);
@@ -121,6 +131,7 @@ public partial class ExplorerWindow
         int version = ++choiceVersion; var token = preview.Token; render?.Cancel(); modelView = null; ExportObj.IsVisible = false;
         try
         {
+            if (bank!=null) { await OpenTrack(row.Asset,option.Index,token);return; }
             if (metadata != null)
             {
                 var bytes = metadata; int n = reset ? 1 : (int)(Record.Value ?? 1);
@@ -142,15 +153,18 @@ public partial class ExplorerWindow
             var source = modelBytes; int boundary = split;
             if (textures.Count > 0)
             {
-                var t = textures[option.Index];
-                var pixels = await Task.Run(() => RageTextureDecoder.DecodeTexturePixels(source.AsSpan(0, boundary), source.AsSpan(boundary), t.Index), token);
+                var t = textures[option.Index]; if(reset) SetSlices(t.Depth); int slice=(int)(Slice.Value??1)-1;
+                var pixels = await Task.Run(() => RageTextureDecoder.DecodeTexturePixels(source.AsSpan(0, boundary), source.AsSpan(boundary), t.Index,slice), token);
                 if (token.IsCancellationRequested || version != choiceVersion) return;
-                SetBitmap(Pixels(pixels)); Status.Text = $"{t.Width} × {t.Height} · {t.Format}"; return;
+                SetBitmap(Pixels(pixels)); UpdateToolStates(); Status.Text = $"{t.Width} × {t.Height} · {t.Format}"; return;
             }
             var model = models[option.Index]; var assetIndex = index;
-            var view = await Task.Run(() => ModelView.Load(row.Asset.Document, source, boundary, model, assetIndex, token), token);
+            var edits=TextureEdits(); var wardrobe=wardrobeIndex;
+            var authored=WardrobeIndex.DrawableKey(row.Asset.Entry) is ulong key ? wardrobe?.Unambiguous(key) : null;
+            var preset = model.IsFragment ? ModelAssembly.Preset(row.Asset,model.Name) : null;
+            var view = await Task.Run(() => ModelView.Load(row.Asset.Document, source, boundary, model, assetIndex, token,edits,authored,authored==null?null:wardrobe?.SlodColor(authored),paint:ModelAssembly.Paint(preset?.PrimaryColorHex)), token);
             if (token.IsCancellationRequested || version != choiceVersion) return;
-            modelView = view; yaw = -0.55f; pitch = 0.25f; zoom = 1; ExportObj.IsVisible = true;
+            mounts = model.IsFragment ? VehicleAssembly.ExtractWheelMounts(source.AsSpan(0,boundary),model.DrawableOffset) : []; modelView = view; UpdateToolStates(); panX=panY=0; yaw = -0.55f; pitch = 0.25f; zoom = 1; ExportObj.IsVisible = true;
             Status.Text = $"{model.Meshes.Count:N0} meshes · {model.Meshes.Sum(m => m.Indices.Count / 3):N0} triangles · drag to rotate, scroll to zoom";
             await RenderModel();
         }
@@ -166,7 +180,7 @@ public partial class ExplorerWindow
         render = frame; float y = yaw, p = pitch, z = zoom;
         try
         {
-            var pixels = await Task.Run(() => view.Render(y, p, z, frame.Token), frame.Token);
+            var pixels = await Task.Run(() => view.Render(y, p, z, frame.Token,panX,panY), frame.Token);
             if (!frame.IsCancellationRequested && render == frame) SetBitmap(Pixels(pixels));
         }
         catch (OperationCanceledException) { }
@@ -180,7 +194,7 @@ public partial class ExplorerWindow
         if (file?.TryGetLocalPath() is not { } path) return;
         await Busy(async token =>
         {
-            path = LocalPath.Require(path);
+            path = SafeDestination(path);
             if (documents.Any(d => LocalPath.Comparer.Equals(d.SourcePath, path))) throw new IOException("Choose a destination outside the source files.");
             string tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try { await File.WriteAllTextAsync(tmp, await Task.Run(() => RageModelDecoder.CreateObj(model), token), token); token.ThrowIfCancellationRequested(); File.Move(tmp, path, true); }

@@ -69,3 +69,10 @@ foreach ($rpfLicenseName in @('OPUS-LICENSE.txt','FFMPEG-LICENSE.txt','FFMPEG-BU
         Copy-Item -LiteralPath $rpfLicenseSource -Destination (Join-Path $rpfLicenseOutput $rpfLicenseName)
     }
 }
+
+$rpfLlvmNotice = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.nuget/packages/libllvm.runtime.win-x64/18.1.3/LICENSE.TXT'
+if (Test-Path -LiteralPath $rpfLlvmNotice) {
+    $rpfNoticeDirectory = Join-Path $rpfPublishPath 'Licenses'
+    New-Item -ItemType Directory -Path $rpfNoticeDirectory -Force | Out-Null
+    Copy-Item -LiteralPath $rpfLlvmNotice -Destination (Join-Path $rpfNoticeDirectory 'LLVM-LICENSE.txt')
+}

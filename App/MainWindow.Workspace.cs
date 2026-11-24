@@ -19,7 +19,7 @@ public partial class MainWindow
     private string? _workspaceDirectory;
     private AssetWorkspaceProject? _sessionProject;
     private DispatcherTimer? _searchTimer;
-    private sealed record Navigation(ArchiveDocument? Source = null, string? Folder = null, ArchiveEntry? Container = null, WorkspaceAsset? Asset = null);
+    private sealed record Navigation(ArchiveDocument? Source = null, string? Folder = null, ArchiveEntry? Container = null, WorkspaceAsset? Asset = null, string? Group = null);
     private sealed record MoreTextures(TreeViewItem Parent, ArchiveDocument Source, int Skip);
 
     private static IEnumerable<string> DirectorySources(string path)
@@ -109,7 +109,7 @@ public partial class MainWindow
             _scopeContainer = null; _selectedFolder = null;
             SetActiveDocument(_scopeSource ?? _documents.Values.First());
             _shownReplacementTarget = null;
-            _loading = true; SearchBox.Text = ""; AssetTypeFilter.SelectedIndex = 0; ThumbnailsCheckBox.IsChecked = false;
+            _loading = true; _contentGroup = null; SearchBox.Text = ""; AssetTypeFilter.SelectedIndex = 0; ThumbnailsCheckBox.IsChecked = false;
             AvailableOnlyCheckBox.IsChecked = _documents.Count == 1 && _document?.Format == "RDS5";
             AvailableOnlyCheckBox.Visibility = Visibility.Visible; DropZone.Visibility = Visibility.Collapsed; ArchiveWorkspace.Visibility = Visibility.Visible;
             FilesGrid.Visibility = Visibility.Visible; UnsupportedPanel.Visibility = Visibility.Collapsed;
@@ -149,7 +149,7 @@ public partial class MainWindow
         NoticeBorder.Visibility = indexed || recovery ? Visibility.Visible : Visibility.Collapsed;
         NoticeText.Text = indexed ? "Decoded RPF9 index · double-click a child archive to browse it · edits save in separate projects"
             : recovery ? "RPF9 payload recovery · edits save in separate projects" : "";
-        Title = (_sessionProject == null ? "rpf9-explorer 1.3" : Path.GetFileName(_sessionProject.ProjectPath) + " · rpf9-explorer 1.3");
+        Title = (_sessionProject == null ? "rpf9-explorer 1.5" : Path.GetFileName(_sessionProject.ProjectPath) + " · rpf9-explorer 1.5");
     }
 
     private void BuildWorkspaceTree()
@@ -157,6 +157,18 @@ public partial class MainWindow
         FolderTree.Items.Clear();
         var root = new TreeViewItem { Header = "All loaded sources", Tag = new Navigation(), IsExpanded = true };
         FolderTree.Items.Add(root);
+        var outfits = new TreeViewItem { Header = "Assembled outfits…", ToolTip = "Choose an authored wardrobe kit from the loaded sources." };
+        outfits.MouseDoubleClick += (_,e) => { e.Handled=true; OpenWardrobe_Click(this,new RoutedEventArgs()); };
+        root.Items.Add(outfits);
+        var content = new TreeViewItem { Header = "Browse by content", IsExpanded = true };
+        root.Items.Add(content);
+        foreach (var family in _allRows.Where(r => r.Asset != null).GroupBy(r => r.Asset!.ContentGroup.Split('/')[0].Trim()).OrderBy(g => g.Key))
+        {
+            var familyNode = new TreeViewItem { Header = $"{family.Key} ({family.Count():N0})", Tag = new Navigation(Group: family.Key) };
+            content.Items.Add(familyNode);
+            foreach (var group in family.GroupBy(r => r.Asset!.ContentGroup).Where(g => g.Key.Contains('/')).OrderBy(g => g.Key))
+                familyNode.Items.Add(new TreeViewItem { Header = $"{group.Key.Split('/')[1].Trim()} ({group.Count():N0})", Tag = new Navigation(Group: group.Key) });
+        }
         foreach (var source in _documents.Values.OrderBy(d => d.SourcePath, StringComparer.OrdinalIgnoreCase))
         {
             string label = _workspaceDirectory != null ? Path.GetRelativePath(_workspaceDirectory, source.SourcePath) : Path.GetFileName(source.SourcePath);
@@ -202,6 +214,8 @@ public partial class MainWindow
         if (tag is MoreTextures more) { more.Parent.Items.Remove(FolderTree.SelectedItem); AppendPoolTreePage(more.Parent, more.Source, more.Skip); return; }
         if (tag is not Navigation navigation) return;
         _searchTimer?.Stop(); _loading = true; SearchBox.Text = ""; _loading = false;
+        _contentGroup = navigation.Group;
+        if (_contentGroup != null) { _loading = true; AssetTypeFilter.SelectedIndex = 0; ThumbnailsCheckBox.IsChecked = false; _loading = false; }
         _scopeSource = navigation.Source; _selectedFolder = navigation.Folder; _scopeContainer = navigation.Container;
         if (_scopeSource != null) SetActiveDocument(_scopeSource);
         if ((_scopeContainer != null || navigation.Asset?.IsImage == true) && SelectedAssetType != "image") { _loading = true; AssetTypeFilter.SelectedIndex = 1; _loading = false; }
@@ -236,6 +250,7 @@ public partial class MainWindow
         else if (_assetIndex?.HasChildren(asset) == true)
             NavigateWorkspace(new Navigation(asset.Document, asset.Entry.Folder, asset.Entry));
     }
+    private string? _contentGroup;
     private string SelectedAssetType => (AssetTypeFilter.SelectedItem as ComboBoxItem)?.Tag as string ?? "all";
     private void WorkspaceFilter_Changed(object sender, SelectionChangedEventArgs e)
     {
@@ -257,6 +272,7 @@ public partial class MainWindow
         return new(SearchBox.Text, SelectedAssetType, ThumbnailsCheckBox.IsChecked == true, AvailableOnlyCheckBox.IsChecked == true,
             _scopeSource?.SourcePath, _selectedFolder, _scopeContainer?.Path, asset?.SourcePath, asset?.Entry.Path, asset?.Texture?.Index ?? -1, SearchAllSourcesCheckBox.IsChecked == true)
         {
+            ContentGroup = _contentGroup, RecoverySources = _documents.Values.Where(d => d.Format=="RPF9" && !d.HasDecodedRpf9Index).Select(d=>d.SourcePath).ToArray(),
             NestedSource = indexed?.ParentArchive == null ? null : indexed.SourcePath,
             NestedSlots = indexed?.ParentArchive == null ? null : indexed.NestedArchiveSlots.ToArray()
         };
@@ -300,7 +316,7 @@ public partial class MainWindow
             bool restoredChild = view.NestedSlots is not { Length: > 0 } || view.NestedSource != null
                 && _documents.TryGetValue(view.NestedSource, out var root) && await ChangeIndexedArchiveAsync(root, view.NestedSlots);
             _loading = true;
-            SearchBox.Text = view.Search; AssetTypeFilter.SelectedItem = AssetTypeFilter.Items.OfType<ComboBoxItem>().FirstOrDefault(i => Equals(i.Tag, view.Type)) ?? AssetTypeFilter.Items[0];
+            _contentGroup = view.ContentGroup; SearchBox.Text = view.Search; AssetTypeFilter.SelectedItem = AssetTypeFilter.Items.OfType<ComboBoxItem>().FirstOrDefault(i => Equals(i.Tag, view.Type)) ?? AssetTypeFilter.Items[0];
             ThumbnailsCheckBox.IsChecked = view.Thumbnails; AvailableOnlyCheckBox.IsChecked = view.AvailableOnly; SearchAllSourcesCheckBox.IsChecked = view.SearchAllSources;
             _scopeSource = view.ScopeSource != null && _documents.TryGetValue(view.ScopeSource, out var scope) ? scope : null;
             _selectedFolder = view.Folder; _scopeContainer = _scopeSource?.Entries.FirstOrDefault(e => e.Path == view.Container);

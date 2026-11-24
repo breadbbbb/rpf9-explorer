@@ -2,7 +2,7 @@
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="clr-namespace:RpfPreview.App"
- Title="rpf9-explorer 1.3" Width="1500" Height="900" MinWidth="1150" MinHeight="700"
+ Title="rpf9-explorer 1.5" Width="1500" Height="900" MinWidth="1150" MinHeight="700"
  Background="{DynamicResource AppBackground}" Foreground="{DynamicResource AppText}" FontFamily="Segoe UI" FontSize="12"
  WindowStartupLocation="CenterScreen" AllowDrop="True" Drop="Window_Drop"
  DragOver="Window_DragOver" Loaded="Window_Loaded">
@@ -21,7 +21,7 @@
     <MenuItem Header="Assembled _wardrobe…" Click="OpenWardrobe_Click"/>
     <MenuItem Header="_Save workspace and edits…" InputGestureText="Ctrl+S" Command="{Binding SaveCommand}"/>
     <MenuItem Header="Clear loaded sources" Click="ClearWorkspace_Click"/>
-    <MenuItem Header="Save inspection _report…" Click="SaveReport_Click"/>
+    <MenuItem Header="Save shader listing…" Click="SaveShaderListing_Click"/><MenuItem Header="Save inspection _report…" Click="SaveReport_Click"/>
     <Separator/>
     <MenuItem Header="Open replacement _project…" Click="OpenReplacementProject_Click"/>
     <MenuItem Header="Save workspace as…" Click="NewReplacementProject_Click"/>

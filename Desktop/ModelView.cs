@@ -5,31 +5,65 @@ namespace RpfExplorer.Desktop;
 
 internal sealed record ModelView(RageModel Model, IReadOnlyDictionary<int, RageTexturePixels> Textures)
 {
+    internal IReadOnlySet<int> Hidden { get; init; } = new HashSet<int>();
     internal static ModelView Load(ArchiveDocument document, byte[] resource, int split, RageModel model,
-        AssetWorkspaceIndex index, CancellationToken token)
+        AssetWorkspaceIndex index, CancellationToken token, IReadOnlyDictionary<ulong, string>? edits = null, WardrobeAppearance? appearance = null, uint? slod = null, bool rim = false, uint? paint = null)
     {
         var maps = new Dictionary<int, RageTexturePixels>();
         var shaders = ModelTextureResolver.TexturedShaderIndices(model);
-        if (model.Materials is { } materials && shaders.Count > 0)
+        if (model.Materials is { } materials)
         {
             var resolver = new ModelTextureResolver(index, 512);
             var source = new ModelTextureSource(document, model, resource, split);
-            foreach (int shader in shaders.Order().Take(64))
+            var colorShaders = materials.Where(m => shaders.Contains(m.ShaderIndex) && ModelTextureBindings.ColorTextures(m).Count > 0).Select(m => m.ShaderIndex).ToArray();
+            if (colorShaders.Length == 0 && shaders.Count == 1) colorShaders = shaders.ToArray();
+            foreach (int shader in model.Meshes.Select(m => m.ShaderIndex ?? -1).Distinct())
             {
                 if (shader < 0 || shader >= materials.Count) continue;
-                foreach (var binding in ModelTextureBindings.ColorTextures(materials[shader]))
+                var refs = ModelTextureBindings.ColorTextures(materials[shader]).Select(b => b.Reference).ToList();
+                bool authored = appearance != null && colorShaders.Length == 1 && colorShaders[0] == shader;
+                if (authored && appearance!.AlbedoKey != 0) refs.Insert(0, new(0, -1, -1, -1, appearance.AlbedoKey, 0, 0));
+                foreach (var reference in refs)
                 {
                     token.ThrowIfCancellationRequested();
-                    if (resolver.Find(source, binding.Reference, token).Pixels is not { } pixels) continue;
+                    RageTexturePixels? pixels = null;
+                    if (edits != null && edits.TryGetValue(reference.OpaqueId64, out var path)) pixels = ReadImage(path);
+                    pixels ??= resolver.Find(source, reference, token).Pixels;
+                    if (pixels == null) continue;
                     maps[shader] = pixels;
                     break;
                 }
+                uint? color = VehicleAssembly.ClassifyMaterial(materials[shader], rim) switch
+                {
+                    VehicleMaterialKind.Paint => paint ?? 0xff534936,
+                    VehicleMaterialKind.SecondaryPaint => 0xffc8beb8,
+                    VehicleMaterialKind.Tyre => 0xff282828,
+                    VehicleMaterialKind.LensAlpha => 0xffc5c8cf,
+                    VehicleMaterialKind.Emissive => 0xffcaecff,
+                    VehicleMaterialKind.Glass => 0xff493e36,
+                    _ => null
+                };
+                if (!maps.ContainsKey(shader) && ((authored ? slod : null) ?? color) is uint c)
+                    maps[shader] = new(1, 1, [(byte)(c >> 16), (byte)(c >> 8), (byte)c, 255]);
             }
         }
-        return new(model, maps);
+        return new(model, maps) { Hidden = (model.Materials ?? []).Where(m => VehicleAssembly.ClassifyMaterial(m, rim) == VehicleMaterialKind.Hidden).Select(m => m.ShaderIndex).ToHashSet() };
     }
 
-    public RageTexturePixels Render(float yaw, float pitch, float zoom, CancellationToken token)
+    internal static RageTexturePixels ReadImage(string path)
+    {
+        if (Path.GetExtension(path).Equals(".dds", StringComparison.OrdinalIgnoreCase)) return DdsTextureReader.DecodeTexturePixels(File.ReadAllBytes(path));
+        using var stream = File.OpenRead(path);
+        using var image = Avalonia.Media.Imaging.Bitmap.DecodeToWidth(stream, 1024);
+        using var converted = new Avalonia.Media.Imaging.RenderTargetBitmap(image.PixelSize);
+        using (var context = converted.CreateDrawingContext()) context.DrawImage(image, new Avalonia.Rect(image.Size), new Avalonia.Rect(0, 0, image.PixelSize.Width, image.PixelSize.Height));
+        var bytes = new byte[checked(image.PixelSize.Width * image.PixelSize.Height * 4)];
+        var handle = System.Runtime.InteropServices.GCHandle.Alloc(bytes, System.Runtime.InteropServices.GCHandleType.Pinned);
+        try { converted.CopyPixels(new Avalonia.PixelRect(image.PixelSize), handle.AddrOfPinnedObject(), bytes.Length, image.PixelSize.Width * 4); } finally { handle.Free(); }
+        return new(image.PixelSize.Width, image.PixelSize.Height, bytes);
+    }
+
+    public RageTexturePixels Render(float yaw, float pitch, float zoom, CancellationToken token, float panX = 0, float panY = 0)
     {
         const int width = 800, height = 600;
         var bgra = new byte[width * height * 4];
@@ -45,11 +79,12 @@ internal sealed record ModelView(RageModel Model, IReadOnlyDictionary<int, RageT
         foreach (var mesh in Model.Meshes)
         {
             token.ThrowIfCancellationRequested();
+            if (Hidden.Contains(mesh.ShaderIndex ?? -1)) continue;
             var points = new Vector3[mesh.Positions.Count];
             for (int i = 0; i < points.Length; i++)
             {
                 var v = Vector3.Transform(mesh.Positions[i] - center, rotation) * scale;
-                points[i] = new(width * 0.5f + v.X, height * 0.5f - v.Z, -v.Y);
+                points[i] = new(width * 0.5f + v.X + panX, height * 0.5f - v.Z + panY, -v.Y);
             }
             Textures.TryGetValue(mesh.ShaderIndex ?? -1, out var texture);
             var uv = mesh.TexCoords;
@@ -78,7 +113,14 @@ internal sealed record ModelView(RageModel Model, IReadOnlyDictionary<int, RageT
                         if (z <= depths[pixel]) continue;
                         depths[pixel] = z;
                         int blue = 205, green = 197, red = 185;
-                        if (texture != null && uv != null)
+                        if (texture is { Width: 1, Height: 1 }) { blue = texture.Bgra32[0]; green = texture.Bgra32[1]; red = texture.Bgra32[2]; }
+                        else if (texture == null && uv == null && mesh.VertexColors is { } colors && colors.Count == points.Length)
+                        {
+                            uint ca = colors[ia], cb = colors[ib], cc = colors[ic];
+                            int Channel(int shift) => (int)(((ca >> shift) & 255) * (1 - u - v) + ((cb >> shift) & 255) * u + ((cc >> shift) & 255) * v);
+                            red = Channel(0); green = Channel(8); blue = Channel(16);
+                        }
+                        else if (texture != null && uv != null)
                         {
                             var coord = uv[ia] * (1 - u - v) + uv[ib] * u + uv[ic] * v;
                             int tx = Math.Clamp((int)((coord.X - MathF.Floor(coord.X)) * texture.Width), 0, texture.Width - 1);

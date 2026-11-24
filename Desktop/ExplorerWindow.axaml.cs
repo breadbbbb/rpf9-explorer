@@ -12,10 +12,17 @@ namespace RpfExplorer.Desktop;
 
 public partial class ExplorerWindow : Window
 {
-    private sealed record Row(WorkspaceAsset Asset)
+    private sealed class Row(WorkspaceAsset asset, bool showThumb, bool edited) : System.ComponentModel.INotifyPropertyChanged
     {
+        public WorkspaceAsset Asset { get; } = asset;
+        public Bitmap? Thumb { get; private set; }
+        public bool ShowThumb { get; } = showThumb;
+        public bool Edited { get; private set; } = edited;
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+        public void SetThumbnail(Bitmap image) { Thumb=image; PropertyChanged?.Invoke(this,new(nameof(Thumb))); }
+        public void MarkEdited(bool value) { if(Edited==value)return; Edited=value; PropertyChanged?.Invoke(this,new(nameof(Location))); }
         public string Name => Asset.Texture?.Name ?? (Asset.Entry.IsNameCandidate ? Asset.Name : Asset.Entry.EmbeddedModelNames.FirstOrDefault() ?? Asset.Name);
-        public string Location => $"{Asset.Kind} · {Asset.Document.ArchiveLocation}";
+        public string Location => (Edited ? "Staged · " : "") + $"{Asset.Kind} · {Asset.Document.ArchiveLocation}";
         public string Size => SizeText(Asset.Size);
     }
     private sealed record SourceItem(ArchiveDocument? Document)
@@ -26,7 +33,7 @@ public partial class ExplorerWindow : Window
     {
         public override string ToString() => Label;
     }
-    private const int PageSize = 250;
+    private int PageSize => Gallery.IsChecked == true ? 96 : 250;
     private readonly List<ArchiveDocument> documents = [];
     private AssetWorkspaceIndex index = AssetWorkspaceIndex.Build([]);
     private WorkspaceAsset[] matches = [];
@@ -51,6 +58,7 @@ public partial class ExplorerWindow : Window
     {
         InitializeComponent();
         Sources.ItemsSource = new[] { new SourceItem(null) }; Sources.SelectedIndex = 0;
+        WireTools();
         OpenFiles.Click += async (_, _) => { var files = await StorageProvider.OpenFilePickerAsync(new() { AllowMultiple = true, Title = "Open archives or resources" }); await OpenPaths(files.Select(f => f.TryGetLocalPath()).OfType<string>()); };
         OpenDirectory.Click += async (_, _) => { var dirs = await StorageProvider.OpenFolderPickerAsync(new() { Title = "Open archive folder" }); await OpenPaths(dirs.Select(f => f.TryGetLocalPath()).OfType<string>()); };
         Configure.Click += async (_, _) => await ConfigureDecoder();
@@ -58,13 +66,14 @@ public partial class ExplorerWindow : Window
         Extract.Click += async (_, _) => await ExtractSelected();
         ExportObj.Click += async (_, _) => await SaveModel();
         Enter.Click += async (_, _) => await Navigate(false);
-        Assets.DoubleTapped += async (_, _) => { if (Selected?.Asset.Entry.IsNestedArchive == true) await Navigate(false); };
+        Assets.DoubleTapped += async (_, _) => { if (Selected?.Asset.Entry.IsNestedArchive == true) await Navigate(false); else if (Selected?.Asset is { Kind: "dictionary" } dict) BrowseDictionary(dict); };
         Up.Click += async (_, _) => await Navigate(true);
         Scan.Click += async (_, _) => await ScanSource();
         Dark.IsCheckedChanged += (_, _) => RequestedThemeVariant = Dark.IsChecked == true ? ThemeVariant.Dark : ThemeVariant.Light;
-        Search.TextChanged += (_, _) => { searchDelay.Stop(); searchDelay.Start(); };
+        Dark.IsCheckedChanged += (_, _) => SaveTheme();
+        Search.TextChanged += (_, _) => { searchDelay.Stop(); if (!updating) searchDelay.Start(); };
         searchDelay.Tick += async (_, _) => { searchDelay.Stop(); await Filter(); };
-        Sources.SelectionChanged += async (_, _) => { if (!updating) await Filter(); };
+        Sources.SelectionChanged += async (_, _) => { if (!updating) { folder = container = group = null; FillFolders((Sources.SelectedItem as SourceItem)?.Document); await Filter(); } };
         Sort.SelectionChanged += async (_, _) => { if (!updating) await Filter(); };
         Prev.Click += (_, _) => { page--; ShowPage(); };
         Next.Click += (_, _) => { page++; ShowPage(); };
@@ -87,12 +96,13 @@ public partial class ExplorerWindow : Window
         {
             if (e.DataTransfer.TryGetFiles() is { } files) await OpenPaths(files.Select(f => f.TryGetLocalPath()).OfType<string>());
         });
-        Picture.PointerPressed += (_, e) => { if (modelView != null) { drag = e.GetPosition(Picture); e.Pointer.Capture(Picture); } };
+        Picture.PointerPressed += (_, e) => { if (modelView != null) { panning=e.GetCurrentPoint(Picture).Properties.IsRightButtonPressed; drag = e.GetPosition(Picture); e.Pointer.Capture(Picture); } };
         Picture.PointerReleased += (_, e) => { drag = null; e.Pointer.Capture(null); };
         Picture.PointerMoved += async (_, e) =>
         {
             if (drag is not { } last || modelView == null) return;
             var point = e.GetPosition(Picture); drag = point;
+            if (panning) { panX+=(float)(point.X-last.X); panY+=(float)(point.Y-last.Y); await RenderModel(); return; }
             yaw += (float)(point.X - last.X) * 0.012f; pitch = Math.Clamp(pitch + (float)(point.Y - last.Y) * 0.012f, -1.55f, 1.55f);
             await RenderModel();
         };
@@ -107,7 +117,8 @@ public partial class ExplorerWindow : Window
             catch (Exception ex) { Status.Text = ex.Message; }
             await OpenPaths(args);
         };
-        Closed += (_, _) => { searchDelay.Stop(); filterVersion++; work?.Cancel(); preview?.Cancel(); render?.Cancel(); SetBitmap(null); };
+        Closing += (_, e) => { if (work != null) { work.Cancel(); e.Cancel = true; Status.Text = "Canceling the operation. Close again when it finishes."; } };
+        Closed += (_, _) => { StopPlayback(); ClearThumbnails(); searchDelay.Stop(); filterVersion++; work?.Cancel(); preview?.Cancel(); render?.Cancel(); SetBitmap(null); };
     }
 
     private async Task Busy(Func<CancellationToken, Task> action)
@@ -126,6 +137,7 @@ public partial class ExplorerWindow : Window
     {
         var incoming = paths.ToArray();
         if (incoming.Length == 0) return;
+        if (incoming.Length == 1 && Path.GetExtension(incoming[0]).ToLowerInvariant() is ".rpfworkspace" or ".rpfproject") { await LoadProject(incoming[0]); return; }
         await Busy(async token =>
         {
             Status.Text = "Opening sources…";
@@ -158,6 +170,7 @@ public partial class ExplorerWindow : Window
                 return (next, built: AssetWorkspaceIndex.Build(next, cancellationToken: token), notices);
             }, token);
             token.ThrowIfCancellationRequested();
+            if(project!=null && result.next.Any(d=>!project.SourcePaths.Contains(d.SourcePath,LocalPath.Comparer))) project.AddSources(result.next.Select(d => d.SourcePath));
             await SetWorkspace(result.next, result.built, null);
             Status.Text = result.notices.FirstOrDefault() ?? $"{documents.Count:N0} sources · {index.Assets.Count:N0} assets";
         });
@@ -165,7 +178,7 @@ public partial class ExplorerWindow : Window
 
     private async Task SetWorkspace(List<ArchiveDocument> next, AssetWorkspaceIndex built, ArchiveDocument? current)
     {
-        documents.Clear(); documents.AddRange(next); index = built;
+        documents.Clear(); documents.AddRange(next); index = built; wardrobeIndex = null; folder = container = null; FillFolders(current);
         updating = true;
         try
         {
@@ -179,13 +192,18 @@ public partial class ExplorerWindow : Window
 
     private async Task Filter()
     {
+        searchDelay.Stop();
         int version = ++filterVersion;
         var query = AssetSearchQuery.Parse(Search.Text ?? "");
         var source = (Sources.SelectedItem as SourceItem)?.Document;
+        string? path = folder, child = container, category = group; string kind = Type.SelectedItem as string ?? "all"; bool only = Only.IsChecked == true, gallery = Gallery.IsChecked == true;
+        if (GlobalSearch.IsChecked == true && !string.IsNullOrWhiteSpace(Search.Text)) { source = null; path = child = null; }
         var currentIndex = index; int sort = Sort.SelectedIndex;
         var list = await Task.Run(() =>
         {
-            var subset = currentIndex.Assets.Where(a => (source == null || a.Document == source) && query.Matches(a));
+            var subset = currentIndex.Assets.Where(a => (source == null || a.Document == source) && (category == null || a.ContentGroup == category || a.ContentGroup.StartsWith(category + " /",StringComparison.Ordinal)) && (path == null || a.Entry.Folder == path || a.Entry.Folder.StartsWith(path + "/", StringComparison.Ordinal))
+                && (child == null || a.Entry.Path == child && a.IsTextureChild) && (kind == "all" || a.Kind == kind || kind == "metadata" && a.Entry.Extension is ".psin" or ".pso")
+                && (!gallery || a.IsImage) && (!only || a.Available) && query.Matches(a));
             return (sort switch { 1 => subset.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase), 2 => subset.OrderByDescending(a => a.Size), 3 => subset.OrderBy(a => a.Size), _ => subset }).ToArray();
         });
         if (version != filterVersion) return;
@@ -194,7 +212,11 @@ public partial class ExplorerWindow : Window
 
     private void ShowPage()
     {
-        Assets.ItemsSource = matches.Skip(page * PageSize).Take(PageSize).Select(a => new Row(a)).ToArray();
+        ClearThumbnails();
+        var rows = matches.Skip(page * PageSize).Take(PageSize).Select(a => new Row(a, Gallery.IsChecked == true && a.IsImage, IsEdited(a))).ToArray();
+        var collection = new System.Collections.ObjectModel.ObservableCollection<Row>(rows);
+        Assets.ItemsSource = collection;
+        if (Gallery.IsChecked == true) _ = LoadThumbnails(collection, thumbnails.Token);
         Count.Text = matches.Length == 0 ? "0 matches" : $"{page * PageSize + 1:N0}–{Math.Min((page + 1) * PageSize, matches.Length):N0} of {matches.Length:N0}";
         Prev.IsEnabled = page > 0; Next.IsEnabled = (page + 1) * PageSize < matches.Length;
         UpdateActions();
@@ -203,7 +225,8 @@ public partial class ExplorerWindow : Window
 
     private void UpdateActions()
     {
-        Extract.IsEnabled = Selected?.Asset.Available == true;
+        Extract.IsEnabled = SelectedRows().Any(a => a.Available);
+        UpdateToolStates();
         Enter.IsVisible = Selected?.Asset.Entry.IsNestedArchive == true;
         Up.IsEnabled = CurrentSource?.ParentArchive != null;
         Scan.IsEnabled = (CurrentSource ?? (documents.Count == 1 ? documents[0] : null))?.Format == "RPF9";
@@ -268,10 +291,11 @@ public partial class ExplorerWindow : Window
 
     private async Task ExtractSelected()
     {
-        if (Selected?.Asset is not { Available: true } asset) return;
+        var selected = SelectedRows().Where(a => a.Available).ToArray();
+        if (selected.Length == 0) return;
         var dirs = await StorageProvider.OpenFolderPickerAsync(new() { Title = "Extract selected asset" });
         if (dirs.FirstOrDefault()?.TryGetLocalPath() is not { } folder) return;
-        await Busy(async token => { await Task.Run(() => WorkspaceAssetExporter.ExtractAsync([asset], LocalPath.Require(folder), token: token), token); Status.Text = "Extracted " + asset.Name; });
+        await Busy(async token => { await Task.Run(() => WorkspaceAssetExporter.ExtractAsync(selected, LocalPath.Require(folder), token: token), token); Status.Text = $"Extracted {selected.Length} selected assets"; });
     }
 
     private static string SizeText(long n) => n < 1024 ? $"{n} B" : n < 1048576 ? $"{n / 1024d:N1} KiB" : $"{n / 1048576d:N1} MiB";

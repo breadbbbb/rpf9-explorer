@@ -1,4 +1,4 @@
-rpf9-explorer 1.4 - Windows desktop app
+rpf9-explorer 1.5 - Windows desktop app
 
 Open README.md for the illustrated guide and current format limitations.
 

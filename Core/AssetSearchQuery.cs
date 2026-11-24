@@ -36,6 +36,7 @@ public sealed class AssetSearchQuery
         foreach (var term in _terms)
         {
             bool match = term.Field switch {
+                "group" => term.Contains(asset.ContentGroup),
                 "type" => TypeMatches(asset.Kind, term.Value),
                 "name" => term.Contains(asset.Name) || asset.Entry.EmbeddedModelNames.Any(name => term.Contains(name)),
                 "source" or "archive" => term.Contains(asset.SourcePath),

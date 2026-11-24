@@ -221,6 +221,8 @@ public static class VehicleAssembly
         0xE515A6E7u
     ];
 
+    public static bool HasWheelMounts(RageSkeleton? skeleton) => skeleton?.Joints.Any(j => WheelBones.ContainsKey(j.Hash)) == true;
+
     public static IReadOnlyList<VehicleWheelMount> ExtractWheelMounts(ReadOnlySpan<byte> system, int drawableOffset)
     {
         var skeleton = RageSkeleton.ReadForDrawable(system, drawableOffset);

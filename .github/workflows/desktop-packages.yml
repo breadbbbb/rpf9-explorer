@@ -47,6 +47,10 @@ jobs:
           Path('sample.0drp').write_bytes(data)
           PY
           sample="$(pwd -P)/sample.0drp"
+          tools="$PWD/Tools"
+          if [[ "$RUNNER_OS" == macOS ]]; then tools="$PWD/rpf9-explorer.app/Contents/MacOS/Tools"; fi
+          "$tools/ffmpeg" -hide_banner -protocols >protocols.txt
+          python3 -c 'import pathlib; s=pathlib.Path("protocols.txt").read_text().splitlines(); assert {x.strip() for x in s if x.startswith("  ")} == {"file","pipe"}'
           ./rpf9-cli --version
           ./rpf9-cli inspect "$sample" --json > result.json
           python3 -c 'import json; r=json.load(open("result.json")); assert r["rootBlock"]==1 and r["record"]["type"]==0x12345678'

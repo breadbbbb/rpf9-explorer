@@ -108,7 +108,7 @@ public static class Rpf9ModelRecovery
                     decoded, candidate, false, false, false,
                     "Recovered model", checked(firstIndex + entries.Count))
                 {
-                    Segments = segments, ResourceSystemBytes = systemLength,
+                    Segments = segments, ResourceSystemBytes = systemLength, HasVehicleMounts = model.IsFragment && VehicleAssembly.HasWheelMounts(model.Skeleton),
                     ResourceDrawableOffset = dictionary ? model.DrawableOffset : null
                 });
             }

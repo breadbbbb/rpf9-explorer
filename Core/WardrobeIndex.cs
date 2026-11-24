@@ -57,7 +57,9 @@ public sealed class WardrobeIndex
                 bool appearance = prefix.AsSpan(0, head).IndexOf(AppearanceMagic) >= 0;
                 bool tintPalette = prefix.AsSpan(0, head).IndexOf(TintPaletteMagic) >= 0;
                 if (!wardrobe && !appearance && !tintPalette) continue;
-                byte[] payload = ArchiveReader.ReadRecoveredPayload(document, entry, token);
+                if(entry.Size is <=0 or >RageWardrobeCatalog.MaxBytes || entry.Size > MaxPayloadBytes - bytesRead) continue;
+                byte[] payload = document.ReadPreview(entry,(int)entry.Size,token);
+                if(payload.LongLength!=entry.Size) continue;
                 bytesRead += payload.Length;
                 if (wardrobe && RageWardrobeCatalog.Decode(payload) is { } catalog) catalogs.Add(new(document.SourcePath, entry.Offset, catalog));
                 if (tintPalette && palettes.Count < 64 && payload.Length <= RageTintPaletteCatalog.MaxBytes && RageTintPaletteCatalog.Decode(payload) is { } palette) palettes.Add(palette);
@@ -108,5 +110,5 @@ public sealed class WardrobeIndex
         => RageAssetKeys.TryGetNativeNameFromRecoveredEntry(entry.Path, out string name) ? RageAssetKeys.DrawableKey(name) : null;
 
     private static bool IsMetadata(ArchiveEntry entry)
-        => entry.CanExtract && (entry.Extension is ".psin" or ".pso" || entry.Path.Contains("metadata_PSIN", StringComparison.OrdinalIgnoreCase));
+        => entry.CanExtract && (entry.Extension is ".psin" or ".pso" or ".0drp" || entry.Compression==RageResourceMetadata.EntryKind || entry.Path.Contains("metadata_PSIN", StringComparison.OrdinalIgnoreCase));
 }

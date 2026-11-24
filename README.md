@@ -1,4 +1,4 @@
-# rpf9-explorer 1.4
+# rpf9-explorer 1.5
 
 A desktop viewer for RPF archives and game assets on Windows, macOS and Linux. Open multiple archives or a folder, search textures, preview models and media, export files, and save replacement projects.
 
@@ -28,11 +28,15 @@ On macOS and Linux, use **Open files**, **Open folder**, or drop sources onto th
 
 Select a texture to preview it. Select a model to rotate it by dragging and zoom with the wheel. The drawable selector switches fragment children or dictionary components. **Export OBJ** saves the displayed geometry. For metadata, select a block, choose a record, or follow a populated array to its target. **Extract selected** writes the selected entry into a destination folder of your choice.
 
-The Windows desktop app also includes the media players, outfit and vehicle assembly, and workspace replacement editing. The CLI on all three platforms supports wardrobe kit export, scanning and model material lookup.
+Use **Models** on macOS and Linux to assemble a vehicle at its wheel mounts, choose an authored wardrobe kit, or queue model parts across searches. The **Edit** menu stages replacements and compares them with the originals. **Workspace** saves and reopens projects. Select a movie or audio stream to use the player, or use **Export** to save a decoded stream or texture.
+
+**Browse by content** on Windows and the **All content** selector on macOS and Linux group assets across archives. Choose a group or use a query such as `group:"Radio stations"` or `group:"World / Maps"`. Grouping uses member paths, resource types, named texture pools and decoded wheel mounts. Audio banks with no station identifier stay in the sound bank group. An authored outfit requires its wardrobe catalogue and matching model sources.
+
+Select a supported native shader to inspect its decoded RDNA 2 instructions and register-level pseudocode. Operations that require hardware-specific semantics keep their instruction spelling. **Save shader listing** exports the text. The compiled shader remains available through extraction.
 
 ## Open files or a folder
 
-Extract the Windows build ZIP and launch the rpf9-explorer desktop app. Keep the `Tools` and `Licenses` folders beside the application.
+On Windows, extract the build ZIP and launch the rpf9-explorer desktop app. Keep the `Tools` and `Licenses` folders beside the application.
 
 - Click **Open** or press **Ctrl+O** to select one or more `.rpf`, `.ttpf`, or `.zip` files.
 - Click **Open folder** to find supported files in a folder and its subfolders.
@@ -139,7 +143,7 @@ Archives can be read while another app is downloading them. Only complete, valid
 
 Select a supported movie or audio bank to open its preview. Audio banks have a stream selector. Playback controls include play, pause, seek, loop, and volume. Movie previews also have frame stepping and full screen.
 
-Native game audio and Bink movie previews need the corresponding helpers in `Tools`. These helpers are included in the Windows build, but their executables are not included in the source ZIP. Some audio codecs remain unsupported, and decoded audio previews are limited to 120 seconds. AWC Opus previews and exported WAV files play at 48 kHz.
+Native game audio and Bink movie previews need the corresponding helpers in `Tools`. The release packages include native helpers for each operating system. Playback uses local files and the first movie audio track. Some audio codecs remain unsupported, and decoded audio previews are limited to 120 seconds. AWC Opus previews and exported WAV files play at 48 kHz.
 
 ## Browse PSIN metadata
 

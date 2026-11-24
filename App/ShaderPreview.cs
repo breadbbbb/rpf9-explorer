@@ -16,9 +16,10 @@ internal static class ShaderPreview
             int at = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(32 + i * 4)));
             string name = Encoding.ASCII.GetString(bytes, at, 4);
             uint size = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at + 4));
+            if (name=="DXIL" && NativeShader.Describe(bytes.AsSpan(at+8,(int)size)) is {} program) text.AppendLine().AppendLine(program);
             text.AppendLine($"  {name}  ·  0x{at:X8}  ·  {size:N0} bytes");
         }
-        text.AppendLine("\nThis is a statically inspected compiled shader. The native Xbox XDAT/XBCH/FSSM payload is not ordinary LLVM bitcode. No shader code is run. Extract selected saves the exact recovered DXBC container; original RPF9 member paths remain unknown.");
+        text.AppendLine("\nExtract selected saves the compiled container. Native code ranges are displayed when their wrapper and program bounds validate.");
         return text.ToString();
     }
 }

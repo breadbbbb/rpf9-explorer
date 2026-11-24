@@ -17,6 +17,8 @@ public sealed record ArchiveEntry(string Path, long StoredSize, long Size, long 
     public string? NameHash64 { get; init; }
     public IReadOnlyList<string> EmbeddedModelNames { get; init; } = [];
     public bool IsNameCandidate { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasVehicleMounts { get; init; }
     public bool IsNestedArchive { get; init; }
     internal bool RequiresIndexDecoder { get; init; }
     internal int IndexedPrefixBytes { get; init; }

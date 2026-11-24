@@ -8,6 +8,8 @@ public sealed record WorkspaceViewState(string Search = "", string Type = "all",
     bool AvailableOnly = false, string? ScopeSource = null, string? Folder = null, string? Container = null,
     string? SelectedSource = null, string? SelectedEntry = null, int SelectedTexture = -1, bool SearchAllSources = true)
 {
+    public string[]? RecoverySources { get; init; }
+    public string? ContentGroup { get; init; }
     public string? NestedSource { get; init; }
     public int[]? NestedSlots { get; init; }
 }
@@ -18,7 +20,7 @@ public sealed class AssetWorkspaceProject
     private sealed record Source(string Path, long Length, long WriteTicks, string HeaderSha256, string? ProjectFile);
     private sealed record Manifest(int Version, string Mode, Source[] Sources, WorkspaceViewState View);
     private readonly List<Source> _sources;
-    private readonly Dictionary<string, ReplacementWorkspace> _projects = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ReplacementWorkspace> _projects = new(LocalPath.Comparer);
     private string _savedHash;
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true, MaxDepth = 24 };
     public string ProjectPath { get; }
@@ -51,7 +53,7 @@ public sealed class AssetWorkspaceProject
         catch (JsonException ex) { throw new InvalidDataException("Invalid workspace project JSON.", ex); }
         if (manifest.Version != 1 || manifest.Mode != "staged-workspace" || manifest.Sources is not { Length: > 0 and <= 512 } || manifest.View == null)
             throw new InvalidDataException("Unsupported workspace project.");
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var paths = new HashSet<string>(LocalPath.Comparer);
         foreach (var source in manifest.Sources)
         {
             if (source == null || !Path.IsPathFullyQualified(source.Path) || !paths.Add(Path.GetFullPath(source.Path)) || Fingerprint(source.Path) != source with { ProjectFile = null })
@@ -73,14 +75,14 @@ public sealed class AssetWorkspaceProject
     {
         path = Path.GetFullPath(path);
         if (_projects.TryGetValue(path, out var loaded)) return loaded;
-        int index = _sources.FindIndex(s => string.Equals(s.Path, path, StringComparison.OrdinalIgnoreCase));
+        int index = _sources.FindIndex(s => LocalPath.Comparer.Equals(s.Path, path));
         if (index < 0) throw new InvalidDataException("The source does not belong to this workspace.");
         var source = _sources[index];
         if (source.ProjectFile != null)
         {
             string child = Path.Combine(AssetsDirectory, source.ProjectFile); GuardLinks(child);
             var workspace = ReplacementWorkspace.Load(child);
-            if (!string.Equals(workspace.SourcePath, source.Path, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Source-project binding mismatch.");
+            if (!LocalPath.Comparer.Equals(workspace.SourcePath, source.Path)) throw new InvalidDataException("Source-project binding mismatch.");
             _projects[path] = workspace; return workspace;
         }
         if (!create) return null;
@@ -95,7 +97,7 @@ public sealed class AssetWorkspaceProject
 
     public void AddSources(IEnumerable<string> paths)
     {
-        VerifySaved(); var additions = NormalizeSources(paths).Where(p => !_sources.Any(s => string.Equals(s.Path, p, StringComparison.OrdinalIgnoreCase))).Select(Fingerprint).ToArray();
+        VerifySaved(); var additions = NormalizeSources(paths).Where(p => !_sources.Any(s => LocalPath.Comparer.Equals(s.Path, p))).Select(Fingerprint).ToArray();
         if (_sources.Count + additions.Length > 512) throw new InvalidDataException("Workspace source limit is 512.");
         _sources.AddRange(additions);
         try { Write(false); } catch { if (additions.Length > 0) _sources.RemoveRange(_sources.Count - additions.Length, additions.Length); throw; }
@@ -104,7 +106,7 @@ public sealed class AssetWorkspaceProject
     public void ImportSourceProject(ReplacementWorkspace source)
     {
         var target = ForSource(source.SourcePath, true)!;
-        if (string.Equals(target.ProjectPath, source.ProjectPath, StringComparison.OrdinalIgnoreCase)) return;
+        if (LocalPath.Comparer.Equals(target.ProjectPath, source.ProjectPath)) return;
         foreach (var replacement in source.Entries) target.Import(replacement.Target, source.AssetPath(replacement), replacement.KindLabel);
     }
     public void Save(WorkspaceViewState? view = null)
@@ -142,7 +144,7 @@ public sealed class AssetWorkspaceProject
     }
     private static IEnumerable<string> NormalizeSources(IEnumerable<string> paths)
     {
-        var values = paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).Take(513).ToArray();
+        var values = paths.Select(Path.GetFullPath).Distinct(LocalPath.Comparer).Take(513).ToArray();
         if (values.Length > 512) throw new InvalidDataException("Workspace source limit is 512.");
         return values;
     }

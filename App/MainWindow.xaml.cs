@@ -131,6 +131,7 @@ public partial class MainWindow : Window
         string type = gallery ? "image" : SelectedAssetType;
         bool global = text.Length > 0 && SearchAllSourcesCheckBox.IsChecked == true;
         IEnumerable<FileRow> rows = _allRows;
+        if (_contentGroup != null) rows = rows.Where(r => r.Asset is {} a && (a.ContentGroup == _contentGroup || a.ContentGroup.StartsWith(_contentGroup + " /", StringComparison.Ordinal)));
         if (!global)
         {
             if (_scopeSource != null) rows = rows.Where(r => r.Asset?.Document == _scopeSource);
@@ -143,8 +144,8 @@ public partial class MainWindow : Window
         if (text.Length > 0) rows = rows.Where(r => r.Asset != null && query.Matches(r.Asset));
         var filtered = rows.OrderBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.SourceLabel, StringComparer.OrdinalIgnoreCase).ToArray();
         _rows.Replace(filtered);
-        FolderPathText.Text = global ? "Search all loaded sources" : (_scopeSource == null ? "All loaded sources" : _scopeSource.ArchiveLocation)
-            + (_selectedFolder == null ? "" : " / " + _selectedFolder) + (_scopeContainer == null ? "" : " / " + _scopeContainer.Name);
+        FolderPathText.Text = _contentGroup ?? (global ? "Search all loaded sources" : (_scopeSource == null ? "All loaded sources" : _scopeSource.ArchiveLocation)
+            + (_selectedFolder == null ? "" : " / " + _selectedFolder) + (_scopeContainer == null ? "" : " / " + _scopeContainer.Name));
         UpFolderButton.IsEnabled = _scopeSource != null || _selectedFolder != null || _scopeContainer != null;
         FileCountText.Text = $"{filtered.Length:N0} assets · {filtered.Select(r => r.Asset?.SourcePath).Distinct().Count():N0} sources";
         ConfigureGallery(filtered, true); UpdateExtractButtons();
@@ -216,7 +217,7 @@ public partial class MainWindow : Window
             }
             var isImage = entry.Extension is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".dds";
             var isMetadata = entry.Extension == ".psin";
-            var isShader = entry.Compression == "Recovered raw deflate shader";
+            var isShader = entry.Compression == "Recovered raw deflate shader" || entry.Extension is ".cso" or ".dxbc";
             var isClips = entry.Compression == "Recovered clip dictionary";
             if (entry.Compression == RageResourceMetadata.EntryKind || document.HasDecodedRpf9Index && entry.IsResource &&
                 entry.ResourceSystemBytes.HasValue && !isImage && !isMetadata && !isShader && !isClips)
@@ -237,7 +238,7 @@ public partial class MainWindow : Window
             HexPreview.Text = FormatHex(bytes.AsSpan(0, Math.Min(bytes.Length, 65536)));
             if (isShader)
             {
-                TextPreview.Text = ShaderPreview.Describe(bytes); TextTab.Header = "Structure";
+                var listing = await Task.Run(()=>ShaderPreview.Describe(bytes),cancellation.Token); if(cancellation.IsCancellationRequested)return; TextPreview.Text=listing; TextTab.Header = "Structure";
                 PreviewTabs.SelectedItem = TextTab; PreviewFootnoteText.Text = "Compiled native shader · static container inspection · no execution"; return;
             }
             if (isClips && Rpf9ClipRecovery.Decode(bytes) is { } clips)
@@ -373,6 +374,23 @@ public partial class MainWindow : Window
             MessageBox.Show(this, ex.Message, "Extraction stopped", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         finally { _workCancellation?.Dispose(); _workCancellation = null; SetBusy(false); }
+    }
+
+    private async void SaveShaderListing_Click(object sender, RoutedEventArgs e)
+    {
+        if (_document is not {} doc || FilesGrid.SelectedItem is not FileRow row || row.Entry.Compression!="Recovered raw deflate shader" && row.Entry.Extension is not (".cso" or ".dxbc")) { StatusText.Text="Select a compiled shader first."; return; }
+        var picker=new SaveFileDialog { Title="Save shader listing",Filter="Text|*.txt",FileName=Path.GetFileNameWithoutExtension(row.Entry.Name)+".txt" };
+        if(picker.ShowDialog(this)!=true)return;
+        try
+        {
+            string path=LocalPath.Require(picker.FileName);
+            if(_documents.ContainsKey(path))throw new IOException("Choose a destination outside the open sources.");
+            var listing=await Task.Run(()=>ShaderPreview.Describe(doc.ReadPreview(row.Entry,Rpf9ShaderRecovery.MaxShaderBytes)));
+            string tmp=path+"."+Guid.NewGuid().ToString("N")+".tmp";
+            try {await File.WriteAllTextAsync(tmp,listing);File.Move(tmp,path,true);} finally{File.Delete(tmp);}
+            StatusText.Text="Shader listing saved.";
+        }
+        catch(Exception ex){StatusText.Text=ex.Message;}
     }
 
     private void SaveReport_Click(object sender, RoutedEventArgs e)
