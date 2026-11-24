@@ -37,9 +37,14 @@ publish() {
 }
 publish Desktop/RpfExplorer.Desktop.csproj rpf9-explorer "$desktop"
 publish Cli/RpfPreview.Cli.csproj rpf9-cli "$package"
+media="${RPF_MEDIA_BUILD:-$stage/media}"
+if [[ ! -x "$media/bin/ffmpeg" ]]; then bash "$root/Tools/build-unix-media.sh" "$media"; fi
+mkdir -p "$desktop/Tools"
+cp "$media/bin/"* "$desktop/Tools/"
 cp "$root/README.md" "$package/"
 cp -R "$root/docs" "$package/"
 mkdir "$package/notices"
+cp "$media/notices/"* "$package/notices/"
 python3 - "$root/Desktop/obj/project.assets.json" "$package/notices" <<'PY'
 import json, pathlib, sys
 assets = json.loads(pathlib.Path(sys.argv[1]).read_text())
@@ -58,6 +63,7 @@ for key, lib in assets['libraries'].items():
 PY
 if [[ "$rid" == osx-* ]]; then
   codesign --force --sign - "$package/rpf9-cli"
+  for tool in "$desktop"/Tools/*; do codesign --force --sign - "$tool"; done
   codesign --force --sign - "$app"
   codesign --verify --strict "$app"
 fi

@@ -1,5 +1,14 @@
 #define NOMINMAX
+#include <filesystem>
+#include <cstring>
+#include <cerrno>
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#endif
 #include <opus.h>
 #include <cstdint>
 #include <cstdio>
@@ -14,39 +23,66 @@
 
 static constexpr int OpusDecodeRate = 48000;
 
+#ifdef _WIN32
+using PathChar = wchar_t;
 struct Handle {
     HANDLE value = INVALID_HANDLE_VALUE;
     explicit Handle(HANDLE h = INVALID_HANDLE_VALUE) : value(h) {}
     ~Handle() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
     void close() { if (value != INVALID_HANDLE_VALUE) { CloseHandle(value); value = INVALID_HANDLE_VALUE; } }
 };
+#else
+using PathChar = char;
+struct Handle {
+    int value = -1;
+    explicit Handle(int fd = -1) : value(fd) {}
+    void close() { if (value >= 0) { ::close(value); value = -1; } }
+    ~Handle() { close(); }
+};
+#endif
 static uint16_t u16(const uint8_t* p) { return uint16_t(p[0]) | (uint16_t(p[1]) << 8); }
 static uint32_t u32(const uint8_t* p) { return uint32_t(u16(p)) | (uint32_t(u16(p+2)) << 16); }
 static uint64_t u64(const uint8_t* p) { return uint64_t(u32(p)) | (uint64_t(u32(p+4)) << 32); }
 static void put16(uint8_t* p, uint16_t x) { p[0] = uint8_t(x); p[1] = uint8_t(x >> 8); }
 static void put32(uint8_t* p, uint32_t x) { put16(p,uint16_t(x)); put16(p+2,uint16_t(x>>16)); }
-static uint64_t number(const wchar_t* s) {
+static uint64_t number(const PathChar* s) {
     if (!s || !*s || *s == L'-' || *s == L'+') throw std::runtime_error("Invalid unsigned argument.");
-    wchar_t* end=nullptr; errno=0; auto v=_wcstoui64(s,&end,0);
+    PathChar* end=nullptr; errno=0;
+#ifdef _WIN32
+    auto v=_wcstoui64(s,&end,0);
+#else
+    auto v=strtoull(s,&end,0);
+#endif
     if (errno || !end || *end) throw std::runtime_error("Invalid numeric argument.");
     return v;
 }
 struct Source {
     Handle file;
     uint64_t length, base, span;
-    Source(const wchar_t* path, uint64_t at, uint64_t size) :
+    Source(const PathChar* path, uint64_t at, uint64_t size) :
+#ifdef _WIN32
         file(CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_FLAG_RANDOM_ACCESS,nullptr)),base(at),span(size) {
         if (file.value == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot open source read-only.");
         LARGE_INTEGER n;
         if (!GetFileSizeEx(file.value,&n) || n.QuadPart<0) throw std::runtime_error("Cannot measure source.");
         length=uint64_t(n.QuadPart);
+#else
+        file(open(path,O_RDONLY)),base(at),span(size) {
+        struct stat info{};
+        if (file.value < 0 || fstat(file.value,&info) || info.st_size < 0) throw std::runtime_error("Cannot measure source.");
+        length=uint64_t(info.st_size);
+#endif
         if (base>length || span>length-base || span<16) throw std::runtime_error("Source span is out of bounds.");
     }
     void read(uint64_t rel, uint8_t* out, size_t n) {
         if (rel>span || n>span-rel || n>4*1024*1024) throw std::runtime_error("Bounded read rejected.");
+        #ifdef _WIN32
         LARGE_INTEGER pos;pos.QuadPart=static_cast<LONGLONG>(base+rel);
         DWORD actual=0;
         if (!SetFilePointerEx(file.value,pos,nullptr,FILE_BEGIN) || !ReadFile(file.value,out,DWORD(n),&actual,nullptr) || actual!=n)
+#else
+        if (pread(file.value,out,n,off_t(base+rel)) != ssize_t(n))
+#endif
             throw std::runtime_error("Source was truncated or could not be read.");
     }
 };
@@ -142,10 +178,18 @@ static Sound inspect(Source& source, uint64_t selected) {
     return chosen;
 }
 static void write(Handle& f,const void* p,size_t n) {
+#ifdef _WIN32
     DWORD done=0;
     if (n>UINT32_MAX || !WriteFile(f.value,p,DWORD(n),&done,nullptr) || done!=n) throw std::runtime_error("Output write failed.");
+#else
+    if (::write(f.value,p,n) != ssize_t(n)) throw std::runtime_error("Output write failed.");
+#endif
 }
+#ifdef _WIN32
 int wmain(int argc,wchar_t** argv) {
+#else
+int main(int argc,char** argv) {
+#endif
     if (argc<6 || argc>7) { fprintf(stderr,"Usage: opus-preview.exe source offset length streamIndex output.wav [maxSeconds=30]\n");return 2; }
     bool created=false;Handle output;
     try {
@@ -158,8 +202,13 @@ int wmain(int argc,wchar_t** argv) {
         int error=0;
         std::unique_ptr<OpusDecoder,decltype(&opus_decoder_destroy)> decoder(sound.codec==0x0B?opus_decoder_create(OpusDecodeRate,sound.channels,&error):nullptr,opus_decoder_destroy);
         if (sound.codec==0x0B && (!decoder || error!=OPUS_OK)) throw std::runtime_error("libopus decoder initialization failed.");
+#ifdef _WIN32
         output.value=CreateFileW(argv[5],GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
         if (output.value==INVALID_HANDLE_VALUE) throw std::runtime_error("Output already exists or could not be created.");
+#else
+        output.value=open(argv[5],O_WRONLY|O_CREAT|O_EXCL,0600);
+        if (output.value<0) throw std::runtime_error("Output already exists or could not be created.");
+#endif
         created=true;
         uint8_t wav[44]={};memcpy(wav,"RIFF",4);memcpy(wav+8,"WAVEfmt ",8);put32(wav+16,16);put16(wav+20,1);
         put16(wav+22,uint16_t(sound.channels));put32(wav+24,uint32_t(outputRate));put32(wav+28,uint32_t(outputRate*sound.channels*2));put16(wav+32,uint16_t(sound.channels*2));put16(wav+34,16);memcpy(wav+36,"data",4);
@@ -208,10 +257,15 @@ int wmain(int argc,wchar_t** argv) {
         }
         if (!written) throw std::runtime_error("No audio packets were decoded.");
         uint32_t dataBytes=uint32_t(written*sound.channels*2);put32(wav+4,36+dataBytes);put32(wav+40,dataBytes);
-        LARGE_INTEGER zero={};if(!SetFilePointerEx(output.value,zero,nullptr,FILE_BEGIN)) throw std::runtime_error("Cannot finish WAV header.");write(output,wav,44);output.close();
+#ifdef _WIN32
+        LARGE_INTEGER zero={};if(!SetFilePointerEx(output.value,zero,nullptr,FILE_BEGIN))
+#else
+        if(lseek(output.value,0,SEEK_SET)!=0)
+#endif
+            throw std::runtime_error("Cannot finish WAV header.");write(output,wav,44);output.close();
         printf("{\"codec\":\"%s\",\"streamIndex\":%llu,\"id\":\"%08X\",\"sampleRate\":%d,\"channels\":%d,\"declaredSamples\":%u,\"decodedSamples\":%llu,\"packets\":%llu,\"peak\":%d,\"rms\":%.3f,\"previewLimited\":%s,\"trim\":\"Raw complete packet decode; source-specific pre-skip/end trim unresolved\"}\n",sound.codec==0?"PCM16":"Opus",number(argv[4]),sound.id,outputRate,sound.channels,sound.samples,written,packets,peak,double(sqrt(sumSquares/(written*sound.channels))),limited?"true":"false");
         return 0;
     } catch(const std::exception& e) {
-        output.close();if(created) DeleteFileW(argv[5]);fprintf(stderr,"%s\n",e.what());return 1;
+        output.close();if(created) { std::error_code ignored; std::filesystem::remove(argv[5],ignored); }fprintf(stderr,"%s\n",e.what());return 1;
     }
 }

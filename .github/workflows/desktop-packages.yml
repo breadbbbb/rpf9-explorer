@@ -13,13 +13,19 @@ jobs:
           - { runner: macos-15, rid: osx-arm64 }
           - { runner: macos-15-intel, rid: osx-x64 }
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/media
+          key: unix-media-${{ matrix.rid }}-${{ hashFiles('Tools/build-unix-media.sh', 'Tools/OpusPreview.cpp', 'Tools/audio-output.c') }}
       - name: Publish desktop and CLI
+        env:
+          RPF_MEDIA_BUILD: ${{ runner.temp }}/media
         run: bash Tools/package-desktop.sh ${{ matrix.rid }} "$RUNNER_TEMP/packages"
       - name: Install Linux window tools
         if: runner.os == 'Linux'
@@ -72,3 +78,9 @@ jobs:
           path: ${{ runner.temp }}/packages/*.tar.gz
           compression-level: 0
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: matrix.rid == 'linux-x64'
+        with:
+          name: media-source
+          path: ${{ runner.temp }}/media/source/
+          compression-level: 0
