@@ -17,12 +17,13 @@ public sealed class SourceWorkspace
     public AssetWorkspaceIndex Index { get; }
     public AssetIds Ids { get; }
 
-    public static string DefaultDecoderConfiguration => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "rpf9-explorer", "rpf9-decoder.json");
+    public static string DefaultDecoderConfiguration => Rpf9IndexProvider.DefaultConfigurationPath;
 
-    public static SourceWorkspace Open(IReadOnlyList<string> inputs, string? decoderConfiguration, Reporter reporter, CancellationToken token)
+    public static SourceWorkspace Open(IReadOnlyList<string> inputs, string? decoderConfiguration, Reporter reporter, CancellationToken token, IReadOnlyList<string>? inside = null)
     {
         var paths = ExpandSources(inputs);
+        if (inside is { Count: > 0 } && (paths.Count != 1 || inside.Count > 16))
+            throw new UsageException("Nested browsing requires one source and at most 16 child slots.");
         var provider = LoadDecoder(decoderConfiguration, reporter);
         var documents = new List<ArchiveDocument>(paths.Count);
         for (int i = 0; i < paths.Count; i++)
@@ -30,7 +31,14 @@ public sealed class SourceWorkspace
             token.ThrowIfCancellationRequested();
             reporter.Progress($"Opening {i + 1}/{paths.Count}: {Path.GetFileName(paths[i])}");
             var document = OpenDocument(paths[i], provider, reporter, token);
-            if (document is not null) documents.Add(document);
+            if (document == null) continue;
+            foreach (string value in inside ?? [])
+            {
+                if (!int.TryParse(value, out int slot) || slot < 0 || slot >= document.Entries.Count || !document.Entries[slot].IsNestedArchive)
+                    throw new UsageException("The selected child archive slot is unavailable.");
+                document = ArchiveReader.OpenNestedRpf9(document, document.Entries[slot], token);
+            }
+            documents.Add(document);
         }
         if (documents.Count == 0) throw new UsageException("None of the sources could be opened.");
         reporter.Progress("Indexing assets");
@@ -55,7 +63,7 @@ public sealed class SourceWorkspace
             else if (File.Exists(full)) paths.Add(full);
             else throw new UsageException($"Source not found: {input}");
         }
-        var distinct = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var distinct = paths.Distinct(LocalPath.Comparer).ToList();
         if (distinct.Count == 0) throw new UsageException("No supported archives, texture pools or metadata were found in the given sources.");
         if (distinct.Count > MaxSources) throw new UsageException($"A workspace can hold up to {MaxSources} sources; {distinct.Count:N0} were found.");
         return distinct;

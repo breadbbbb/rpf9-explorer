@@ -1,0 +1,74 @@
+name: Desktop packages
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, rid: linux-x64 }
+          - { runner: ubuntu-24.04-arm, rid: linux-arm64 }
+          - { runner: macos-15, rid: osx-arm64 }
+          - { runner: macos-15-intel, rid: osx-x64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish desktop and CLI
+        run: bash Tools/package-desktop.sh ${{ matrix.rid }} "$RUNNER_TEMP/packages"
+      - name: Install Linux window tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y xvfb xdotool
+      - name: Verify packaged executables
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$(mktemp -d)"
+          tar -xzf "$RUNNER_TEMP"/packages/*.tar.gz
+          cd rpf9-explorer-*
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+          data = bytearray(176)
+          data[16:20] = b'0DRP'
+          for at, value in [(20,122),(32,1),(56,0x50000060),(76,1),(96,0x12345678),(100,8),(104,0x50000090)]:
+              struct.pack_into('<I',data,at,value)
+          Path('sample.0drp').write_bytes(data)
+          PY
+          sample="$(pwd -P)/sample.0drp"
+          ./rpf9-cli --version
+          ./rpf9-cli inspect "$sample" --json > result.json
+          python3 -c 'import json; r=json.load(open("result.json")); assert r["rootBlock"]==1 and r["record"]["type"]==0x12345678'
+          ./rpf9-cli search "$sample" -q type:metadata --json
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            xvfb-run -a bash -euc './rpf9-explorer "$1" & pid=$!; trap "kill $pid || true" EXIT; timeout 40 xdotool search --sync --name "sample.0drp.*rpf9-explorer" >/dev/null' _ "$sample"
+          else
+            app="$PWD/rpf9-explorer.app"
+            codesign --verify --strict "$app"
+            "$app/Contents/MacOS/rpf9-explorer" "$sample" &
+            pid=$!
+            trap 'kill "$pid" 2>/dev/null || true' EXIT
+            cat > "$RUNNER_TEMP/window.swift" <<'SWIFT'
+          import CoreGraphics
+          import Foundation
+          let pid = Int(CommandLine.arguments[1])!
+          for _ in 0..<80 {
+              let windows = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []
+              if windows.contains(where: { ($0[kCGWindowOwnerPID as String] as? Int) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }) { exit(0) }
+              Thread.sleep(forTimeInterval: 0.5)
+          }
+          exit(1)
+          SWIFT
+            swift "$RUNNER_TEMP/window.swift" "$pid"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: ${{ runner.temp }}/packages/*.tar.gz
+          compression-level: 0
+          if-no-files-found: error

@@ -4,6 +4,7 @@ const string usage = """
     rpf9-cli: search and export rpf9-explorer assets without the desktop app.
 
     Usage:
+      rpf9-cli inspect <source> [options]
       rpf9-cli search <source>... [options]
       rpf9-cli export <source>... --out <folder> [options]
       rpf9-cli kits <source>... [options]
@@ -41,6 +42,7 @@ try
 {
     return command switch
     {
+        "inspect" => InspectCommand.Run(rest, cancellation.Token),
         "search" => SearchCommand.Run(rest, cancellation.Token),
         "export" => await ExportCommand.RunAsync(rest, cancellation.Token),
         "kits" => KitsCommand.Run(rest, cancellation.Token),
@@ -72,6 +74,7 @@ int Help(IReadOnlyList<string> topic)
 {
     Console.WriteLine(topic.FirstOrDefault() switch
     {
+        "inspect" => InspectCommand.Usage,
         "search" => SearchCommand.Usage,
         "export" => ExportCommand.Usage,
         "kits" => KitsCommand.Usage,

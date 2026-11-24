@@ -13,6 +13,7 @@ public static class SearchCommand
           -q, --query <text>     Search text, same syntax as the app (type:, name:, size:>1mb, -word, "phrase")
           -t, --type <type>      all, models, textures, audio, shaders, animations, videos (default: all)
               --id <id>          Only the asset with this id; repeat or separate with commas
+              --inside <slot>    Search an indexed child archive (repeat to descend further); --json includes slot numbers
               --available        Hide assets the current decoders cannot extract
               --best             Keep only the largest variant of each name
               --limit <n>        Show at most n results (default: 200, 0 for all)
@@ -28,7 +29,7 @@ public static class SearchCommand
         new("json", TakesValue: false)
     ];
 
-    private sealed record Row(string Id, string Kind, string Name, string Source, long Size, string Offset, bool Available);
+    private sealed record Row(string Id, string Kind, string Name, string Source, long Size, string Offset, bool Available, int? Slot);
 
     public static int Run(IReadOnlyList<string> args, CancellationToken token)
     {
@@ -36,7 +37,7 @@ public static class SearchCommand
         var reporter = CommonOptions.Reporter(line);
         var selection = AssetSelection.From(line, "all");
         int limit = line.Integer("limit", 200, 0, int.MaxValue);
-        var workspace = SourceWorkspace.Open(line.Positionals, line.Value("decoder"), reporter, token);
+        var workspace = SourceWorkspace.Open(line.Positionals, line.Value("decoder"), reporter, token, line.Values("inside"));
         var matches = selection.Apply(workspace);
         var rows = (limit == 0 ? matches : matches.Take(limit)).Select(a => ToRow(a, workspace.Ids)).ToArray();
         if (line.Has("json"))
@@ -51,7 +52,7 @@ public static class SearchCommand
 
     private static Row ToRow(WorkspaceAsset asset, AssetIds ids) => new(
         ids[asset], asset.Kind, AssetLabels.Name(asset), asset.SourceName, asset.Size,
-        asset.Entry.Offset.ToString("X10"), asset.Available);
+        asset.Entry.Offset.ToString("X10"), asset.Available, asset.Document.HasDecodedRpf9Index ? asset.Entry.Index : null);
 
     private static void PrintTable(IReadOnlyList<Row> rows)
     {

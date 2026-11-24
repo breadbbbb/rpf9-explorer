@@ -83,7 +83,7 @@ public static class RecoveryIndexCache
                     or OlderModelSchema or PageModelSchema or MidPageModelSchema or PreviousModelSchema
                 : index.Schema == CurrentSchema(kind);
             if (!supported || index.Kind != kind
-                || !string.Equals(index.Source, source, StringComparison.OrdinalIgnoreCase)
+                || !LocalPath.Comparer.Equals(index.Source, source)
                 || index.SourceLength != length || !live && index.SourceWriteTicks != File.GetLastWriteTimeUtc(source).Ticks
                 || index.HeaderSha256 != Convert.ToHexString(SHA256.HashData(header.AsSpan(0, Math.Min(64, header.Length))))) return null;
             Validate(kind, length, index.Entries, index.Schema);
@@ -101,7 +101,7 @@ public static class RecoveryIndexCache
     public static string CachePath(string kind, string source)
     {
         if (kind is not ("models" or "textures" or "audio" or "shaders" or "psin" or "clips")) throw new ArgumentException("Unknown payload index kind.");
-        var identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(source).ToUpperInvariant())));
+        var identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(LocalPath.Identity(Path.GetFullPath(source)))));
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RpfPreview", "Indexes", kind + "-" + identity[..24] + ".json");
     }
     private static byte[] ReadHeader(string source)

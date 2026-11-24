@@ -30,10 +30,20 @@ public sealed class Rpf9IndexProvider
         Configuration settings;
         try { settings = JsonSerializer.Deserialize<Configuration>(file, Json) ?? throw new InvalidDataException("Decoder configuration is empty."); }
         catch (JsonException ex) { throw new InvalidDataException("Invalid decoder configuration JSON.", ex); }
-        if (settings.Version != 1 || !LocalFile(settings.Python, ".exe") || !LocalFile(settings.Script, ".py")
+        if (settings.Version != 1 || !LocalInterpreter(settings.Python) || !LocalFile(settings.Script, ".py")
             || !LocalFile(settings.Executable, ".exe") || settings.Names != null && !LocalFile(settings.Names, ".json"))
             throw new InvalidDataException("Decoder configuration must point to existing local Python, bridge, executable and optional name dictionary files.");
         return new(settings);
+    }
+
+    public static string DefaultConfigurationPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "rpf9-explorer", "rpf9-decoder.json");
+
+    private static bool LocalInterpreter(string? path)
+    {
+        if (OperatingSystem.IsWindows()) return LocalFile(path, ".exe");
+        if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || !File.Exists(LocalPath.Require(path))) return false;
+        return (File.GetUnixFileMode(path) & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
     }
 
     private static bool LocalFile(string? path, string extension) =>

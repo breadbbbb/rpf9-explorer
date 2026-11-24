@@ -224,6 +224,7 @@ public partial class MainWindow : Window
                 var resource = await Task.Run(() => RageResourcePreview.Read(document, entry, cancellation.Token), cancellation.Token);
                 if (cancellation.IsCancellationRequested || _document != document) return;
                 TextPreview.Text = resource.Details;
+                LoadRecords(resource.Bytes, entry);
                 HexPreview.Text = FormatHex(resource.Bytes.AsSpan(0, Math.Min(resource.Bytes.Length, 65536)));
                 TextTab.Header = "Structure";
                 PreviewTabs.SelectedItem = TextTab;

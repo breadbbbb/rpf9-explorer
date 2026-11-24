@@ -22,6 +22,8 @@ public static class ExportCommand
               --available          Skip assets the current decoders cannot extract
               --best               Keep only the largest variant of each name
               --merge <name>       Write all models into one <name>.obj, keeping each part as its own object
+              --inside <slot>      Open an indexed child archive (repeat to descend further)
+              --drawable <number>  Select a fragment drawable by index (0 selects the primary)
               --lod <0-3>          Level of detail, 0 is the most detailed (default: 0)
               --max-texture <px>   Largest texture side in pixels (default: 2048)
               --no-textures        Write geometry and UVs only
@@ -39,6 +41,7 @@ public static class ExportCommand
         new("kit"),
         new("merge"),
         new("lod"),
+        new("drawable"),
         new("max-texture"),
         new("no-textures", TakesValue: false),
         new("no-normals", TakesValue: false),
@@ -46,8 +49,8 @@ public static class ExportCommand
         new("overwrite", TakesValue: false)
     ];
 
-    private sealed record Settings(string Output, string? Merge, int Lod, int MaxTexture, bool Textures, bool Normals, bool Wardrobe, bool Overwrite);
-    private sealed record PartRecord(string Id, string Name, string Source, string? Obj, int Vertices, int Triangles, IReadOnlyList<MaterialRecord> Materials);
+    private sealed record Settings(string Output, string? Merge, int Lod, int MaxTexture, bool Textures, bool Normals, bool Wardrobe, bool Overwrite, int? Drawable);
+    private sealed record PartRecord(string Id, string Name, string Source, string? Obj, int Vertices, int Triangles, IReadOnlyList<MaterialRecord> Materials, int? FragmentDrawableIndex);
     private sealed record FileRecord(string Id, string Name, string Source, string File);
     private sealed record Failure(string Id, string Name, string Reason);
     private sealed record Manifest(string Tool, int Lod, string? Kit, string? Merged, IReadOnlyList<PartRecord> Models, IReadOnlyList<FileRecord> Images, int Extracted, IReadOnlyList<Failure> Failures);
@@ -61,7 +64,7 @@ public static class ExportCommand
             throw new UsageException($"{settings.Output} already holds an export; choose a new folder or add --overwrite.");
         var reporter = CommonOptions.Reporter(line);
         var selection = AssetSelection.From(line, "models");
-        var workspace = SourceWorkspace.Open(line.Positionals, line.Value("decoder"), reporter, token);
+        var workspace = SourceWorkspace.Open(line.Positionals, line.Value("decoder"), reporter, token, line.Values("inside"));
         WardrobeIndex? wardrobe = null;
         if (kit is not null || settings.Wardrobe && settings.Textures)
         {
@@ -138,7 +141,7 @@ public static class ExportCommand
         return new(SourceWorkspace.RequireLocal(output), merge is null ? null : Path.GetFileNameWithoutExtension(merge),
             line.Integer("lod", 0, 0, RageModelDecoder.LodCount - 1),
             line.Integer("max-texture", 2048, 16, 16384),
-            !line.Has("no-textures"), !line.Has("no-normals"), !line.Has("no-wardrobe"), line.Has("overwrite"));
+            !line.Has("no-textures"), !line.Has("no-normals"), !line.Has("no-wardrobe"), line.Has("overwrite"), line.Has("drawable") ? line.Integer("drawable", 0, 0, 4095) : null);
     }
 
     private sealed class Exporter
@@ -182,10 +185,12 @@ public static class ExportCommand
                 {
                     byte[] resource = ReadResource(asset);
                     int split = SystemBytes(asset.Entry);
-                    var model = RageModelDecoder.Decode(resource.AsSpan(0, split), resource.AsSpan(split), asset.Entry.ResourceDrawableOffset, _settings.Lod);
+                    var model = _settings.Drawable is int child
+                        ? RageModelDecoder.DecodeFragmentDrawable(resource.AsSpan(0, split), resource.AsSpan(split), child, _settings.Lod)
+                        : RageModelDecoder.Decode(resource.AsSpan(0, split), resource.AsSpan(split), asset.Entry.ResourceDrawableOffset, _settings.Lod);
                     if (model is null) { Failures.Add(new(id, name, $"LOD {_settings.Lod} could not be decoded.")); continue; }
                     var resolved = _settings.Textures ? ResolveMaterials(asset, new(asset.Document, model, resource, split)) : new ResolvedMaterials(new Dictionary<int, ObjMaterial>(), []);
-                    string partName = UniqueName(AssetLabels.SafeFileName(name), id);
+                    string partName = UniqueName(AssetLabels.SafeFileName(name) + (_settings.Drawable is int n ? $"_drawable_{n}" : ""), id);
                     var part = new ObjModelPart(partName, model, resolved.Materials);
                     string? obj = null;
                     if (_settings.Merge is null)
@@ -194,7 +199,7 @@ public static class ExportCommand
                         WriteObj(partName, [part]);
                     }
                     else merged.Add(part);
-                    records.Add(new(id, name, asset.SourceName, obj, model.Meshes.Sum(m => m.Positions.Count), model.Meshes.Sum(m => m.Indices.Count / 3), resolved.Records));
+                    records.Add(new(id, name, asset.SourceName, obj, model.Meshes.Sum(m => m.Positions.Count), model.Meshes.Sum(m => m.Indices.Count / 3), resolved.Records, model.FragmentDrawableIndex));
                 }
                 catch (Exception ex) when (IsExportFailure(ex)) { Failures.Add(new(id, name, ex.Message)); }
             }

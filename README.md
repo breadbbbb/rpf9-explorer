@@ -1,6 +1,6 @@
-# rpf9-explorer 1.3
+# rpf9-explorer 1.4
 
-A Windows desktop viewer for RPF archives and game assets. Open multiple archives or a folder, search textures, preview models and media, export files, and save replacement projects.
+A desktop viewer for RPF archives and game assets on Windows, macOS and Linux. Open multiple archives or a folder, search textures, preview models and media, export files, and save replacement projects.
 
 RPF9 can open in indexed mode with a compatible local decoder, or use the built-in recovery scans. Indexed mode browses the native member table, including nested archives, and reads supported stored, chunked, and transformed members. Archive rebuilding remains unavailable.
 
@@ -13,6 +13,22 @@ This is an unofficial project developed while inspecting RPF9 files associated w
 The source package contains the explorer's code, build files and documentation. The Windows build includes the required third-party notices. Game archives and raw model, texture, audio, and movie files are not bundled. The screenshots show the app displaying files loaded locally.
 
 This project is not affiliated with, endorsed by, or sponsored by Rockstar Games or Take-Two Interactive. GTA 6 and related names belong to their respective owners.
+
+## Choose a build
+
+Choose your operating system and processor under **Releases**. Each package includes its own .NET runtime and the command-line tools.
+
+| Platform | Getting started |
+| --- | --- |
+| Windows x64 | Extract the ZIP and launch the desktop app. |
+| macOS on Apple silicon or Intel | Extract the matching archive and open the application bundle. The build uses an ad hoc signature. It has no Apple notarization. |
+| Desktop Linux on x64 or ARM64 | Extract the archive with permissions intact and run the desktop launcher from the extracted folder. The viewer uses X11 or XWayland. |
+
+On macOS and Linux, use **Open files**, **Open folder**, or drop sources onto the window. Search across sources, sort by size, and double-click a nested archive to browse it. **Parent archive** returns to the previous index. **Scan archive** runs the recovery scanners. **Decoder…** accepts a compatible local bridge configuration.
+
+Select a texture to preview it. Select a model to rotate it by dragging and zoom with the wheel. The drawable selector switches fragment children or dictionary components. **Export OBJ** saves the displayed geometry. For metadata, select a block, choose a record, or follow a populated array to its target. **Extract selected** writes the selected entry into a destination folder of your choice.
+
+The Windows desktop app also includes the media players, outfit and vehicle assembly, and workspace replacement editing. The CLI on all three platforms supports wardrobe kit export, scanning and model material lookup.
 
 ## Open files or a folder
 
@@ -159,6 +175,8 @@ rpf9-cli export $source --kit (Read-Host "Kit ID from the list") --merge outfit 
 rpf9-cli scan $source --kinds textures,psin
 ```
 
+- `inspect` reads a decoded resource or an indexed archive member. Select a block and record with `--block` and `--record`, both numbered from one. The default is the first root record. Add `--json` for the block directory, field hashes, array targets and a bounded hex preview of the selected record.
+- For nested archives, run `search --json` to get indexed slot numbers, then pass `--inside` with a slot to search, inspect or export its contents. Repeat it to descend further. For fragment exports, `--drawable 0` selects the primary and higher numbers select its children.
 - `search` prints an ID, type, size, source and name for each match. Add `--json` for machine-readable output. An ID names one source, entry and subresource: a source tag, then the offset (and drawable child or texture index), or the entry index where offsets repeat.
 - `export` writes models as OBJ + MTL with PNG color and normal maps, textures as PNG, and other assets as stored files. `--merge` writes every model into one OBJ with each part as its own object. Parts keep their native bind-space coordinates, so character components line up when merged.
 - `kits` lists authored wardrobe kits and the indexed models each one selects. `export --kit <id>` exports a kit with its authored albedo and normal maps, or its SLOD color where no albedo texture is available.
@@ -188,7 +206,7 @@ Matching staged texture edits are used when previewing a model. **They are not w
 
 ## Build from source
 
-Install the .NET 10 SDK on Windows. From the repository root, build the desktop app with PowerShell.
+Install the .NET 10 SDK. On macOS or Linux, use `dotnet run --project ./Desktop` from the repository root to launch the portable viewer. On Windows, build the WPF app with PowerShell.
 
 ```powershell
 dotnet build ./App -c Release
@@ -204,7 +222,7 @@ Bink requires a separately installed licensed Unreal Bink SDK. Opus requires lib
 
 For XMA2 and WAV previews, put an FFmpeg build configured with `--disable-network` and only the `file,pipe` protocols in `Tools` before publishing. The publish script checks both settings. The app loads preview helpers from the local `Tools` folder.
 
-The Windows 1.3 build uses libopus 1.6.1. To use your own static libopus build, pass its installation root to `-OpusRoot` and its x64 `/MT` static library to `-OpusLibrary` when running the Opus helper build script. Compiler and Windows SDK paths can also be supplied as parameters.
+The Windows build uses libopus 1.6.1. To use your own static libopus build, pass its installation root to `-OpusRoot` and its x64 `/MT` static library to `-OpusLibrary` when running the Opus helper build script. Compiler and Windows SDK paths can also be supplied as parameters.
 
 Model and texture browsing do not need the media helpers.
 
@@ -213,6 +231,7 @@ Model and texture browsing do not need the media helpers.
 | Folder | Contents |
 | --- | --- |
 | `App` | WPF interface and preview sessions |
+| `Desktop` | macOS and Linux desktop interface and model renderer |
 | `Core` | Archive readers, decoders, search, extraction, and edit projects |
 | `Cli` | `rpf9-cli` command-line search and export |
 | `Tools` | Native helper source, build scripts, and the indexing CLI |

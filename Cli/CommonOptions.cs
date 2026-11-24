@@ -8,6 +8,7 @@ public static class CommonOptions
     public static readonly OptionSpec[] All =
     [
         new("decoder"),
+        new("inside", Repeatable: true),
         new("quiet", TakesValue: false)
     ];
 

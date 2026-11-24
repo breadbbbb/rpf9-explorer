@@ -15,8 +15,8 @@ public sealed class ModelTextureResolver
     private readonly Dictionary<ulong, List<ResidentLocation>> _residentByKey = [];
     private readonly Dictionary<uint, List<ResidentLocation>> _residentByName = [];
     private readonly Dictionary<ulong, List<StreamingTextureLocation>> _poolByKey = [];
-    private readonly Dictionary<string, StreamingTextureCatalog?> _catalogs = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, Dictionary<uint, List<ResidentLocation>>> _defaultResidents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, StreamingTextureCatalog?> _catalogs = new(LocalPath.Comparer);
+    private readonly Dictionary<string, Dictionary<uint, List<ResidentLocation>>> _defaultResidents = new(LocalPath.Comparer);
     private (string Key, byte[] Data, int Split)? _lastResource;
 
     public ModelTextureResolver(AssetWorkspaceIndex index, int maximumDimension = 2048)
@@ -145,7 +145,7 @@ public sealed class ModelTextureResolver
         if (_defaultResidents.TryGetValue(root, out var cached)) return cached;
         var names = new Dictionary<uint, List<ResidentLocation>>();
         var paths = new[] { Path.Combine(folder, "textures.rpf"), Path.Combine(root, "textures.rpf"), Path.Combine(root, "pack", "core_restofworld", "core_restofworld.rpf") }
-            .Where(LocalPath.FileExists).Distinct(StringComparer.OrdinalIgnoreCase);
+            .Where(LocalPath.FileExists).Distinct(LocalPath.Comparer);
         foreach (string path in paths)
         {
             token.ThrowIfCancellationRequested();

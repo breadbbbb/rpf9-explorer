@@ -3,6 +3,8 @@ namespace RpfPreview.Core;
 public static class LocalPath
 {
     public const FileAttributes RemoteAttributes = FileAttributes.ReparsePoint | FileAttributes.Offline;
+    public static StringComparer Comparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    public static string Identity(string path) => OperatingSystem.IsWindows() ? path.ToUpperInvariant() : path;
 
     public static bool FileExists(string path)
     {

@@ -1,6 +1,6 @@
 # Local RPF9 index decoder
 
-Use **File > Configure local RPF9 decoder** to select a configuration for a compatible local decoder you trust. Reopen the archive or folder. The app shows the decoded index and the header signature result in its inspection details.
+On Windows, use **File > Configure local RPF9 decoder**. On macOS and Linux, use **Decoder…**. Select a configuration for a compatible local decoder you trust. On Windows, reopen the archive or folder. The app shows the decoded index and the header signature result in its inspection details.
 
 Double-click a nested archive row to browse it. Use **Up** at the child archive's root to return to its parent. Saving a workspace also saves the active child location. Name candidates are labelled in the row tooltip. Search for a path or use `hash:` with a 32-bit or 64-bit name hash.
 
@@ -12,7 +12,7 @@ Keep archives, workspace files, decoder inputs, and extraction destinations on l
 
 ## Configuration
 
-The desktop app runs the Python interpreter and bridge script selected in the configuration. Replace each placeholder below with an absolute local path, using forward slashes or doubled backslashes in the JSON strings. Only configure a script you trust. The bridge script, its dependencies, the game executable, and any optional name dictionary must already be on your machine.
+The desktop app runs the Python interpreter and bridge script selected in the configuration. Replace each placeholder below with an absolute local path, using forward slashes or doubled backslashes in the JSON strings. On macOS and Linux, use the resolved path to an executable Python interpreter. Only configure a script you trust. The bridge script, its dependencies, the game executable, and any optional name dictionary must already be on your machine.
 
 ```json
 {

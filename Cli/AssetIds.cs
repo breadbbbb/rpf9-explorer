@@ -20,11 +20,11 @@ public sealed class AssetIds
 
     public static AssetIds Build(AssetWorkspaceIndex index)
     {
-        var tags = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var tags = new Dictionary<string, string>(LocalPath.Comparer);
         string Tag(WorkspaceAsset asset)
         {
             if (!tags.TryGetValue(asset.SourcePath, out var tag))
-                tags[asset.SourcePath] = tag = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(asset.SourcePath.ToUpperInvariant())))[..8];
+                tags[asset.SourcePath] = tag = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(LocalPath.Identity(asset.SourcePath) + (asset.Document.NestedArchiveSlots.Count == 0 ? "" : "|" + string.Join("/", asset.Document.NestedArchiveSlots)))))[..8];
             return tag;
         }
         var byOffset = index.Assets.GroupBy(a => Tag(a) + ":" + OffsetForm(a), StringComparer.OrdinalIgnoreCase).ToArray();

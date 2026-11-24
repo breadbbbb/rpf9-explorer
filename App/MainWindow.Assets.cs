@@ -39,6 +39,7 @@ public partial class MainWindow
 
     private void ResetAssetPreview()
     {
+        ResetRecords();
         ClearFragmentChoices();
         _activeVehicleContext = null;
         if (AssembleVehicleButton != null) AssembleVehicleButton.Visibility = Visibility.Collapsed;

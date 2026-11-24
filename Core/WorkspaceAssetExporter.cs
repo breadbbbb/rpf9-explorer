@@ -16,7 +16,7 @@ public static class WorkspaceAssetExporter
         foreach (var source in assets.GroupBy(a => a.Document))
         {
             string name = SafeName(Path.GetFileNameWithoutExtension(source.Key.SourcePath));
-            string id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source.Key.SourcePath.ToUpperInvariant())))[..8];
+            string id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(LocalPath.Identity(source.Key.SourcePath))))[..8];
             string sourceFolder = Path.Combine(destination, name + "_" + id); GuardDirectory(sourceFolder); Directory.CreateDirectory(sourceFolder);
             foreach (var entryGroup in source.GroupBy(a => a.Entry))
             {

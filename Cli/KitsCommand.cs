@@ -37,7 +37,7 @@ public static class KitsCommand
         var reporter = CommonOptions.Reporter(line);
         int limit = line.Integer("limit", 100, 0, int.MaxValue);
         var terms = (line.Value("query") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var workspace = SourceWorkspace.Open(line.Positionals, line.Value("decoder"), reporter, token);
+        var workspace = SourceWorkspace.Open(line.Positionals, line.Value("decoder"), reporter, token, line.Values("inside"));
         reporter.Progress("Reading wardrobe catalogues");
         var wardrobe = WardrobeIndex.Build(workspace.Documents, token);
         reporter.ClearProgress();

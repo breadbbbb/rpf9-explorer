@@ -209,6 +209,13 @@ public static class RageModelDecoder
         !LooksLikeDrawableDictionary(system) && !LooksLikeDrawable(system) && LooksLikeFragment(system)
             ? BinaryPrimitives.ReadUInt16LittleEndian(system[48..]) : 0;
 
+    public static RageModel? DecodeFragmentDrawable(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics, int index, int lod = 0)
+    {
+        if (index < 0 || index >= GetFragmentDrawableCount(system)) return null;
+        int primary = (int)(BinaryPrimitives.ReadUInt64LittleEndian(system[24..]) - 0x50000000);
+        return Decode(system, graphics, primary + index * FragmentDrawableStride, lod);
+    }
+
     public static RageModel? Inspect(ReadOnlySpan<byte> system, ReadOnlySpan<byte> graphics) => Decode(system, graphics);
 
     public static IReadOnlyList<RageDrawableDictionaryEntry>? InspectDrawableDictionary(ReadOnlySpan<byte> system)

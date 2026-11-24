@@ -1,0 +1,57 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    x:Class="RpfExplorer.Desktop.ExplorerWindow" Title="rpf9-explorer" Width="1180" Height="760" MinWidth="800" MinHeight="480">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16" RowSpacing="12">
+    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+      <TextBlock Text="rpf9-explorer" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center"/>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+        <Button Name="OpenFiles" Content="Open files"/>
+        <Button Name="OpenDirectory" Content="Open folder"/>
+        <Button Name="Configure" Content="Decoder…"/>
+        <Button Name="Scan" Content="Scan archive" IsEnabled="False"/>
+      </StackPanel>
+      <ToggleSwitch Name="Dark" Grid.Column="2" Content="Dark mode" IsChecked="True"/>
+    </Grid>
+    <Grid Grid.Row="1" ColumnDefinitions="3*,6,4*" ColumnSpacing="6">
+      <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="7">
+        <TextBox Name="Search" Watermark="Search names, types or hashes"/>
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+          <ComboBox Name="Sources" HorizontalAlignment="Stretch" PlaceholderText="All sources"/>
+          <ComboBox Name="Sort" Grid.Column="1" SelectedIndex="0">
+            <ComboBoxItem Content="Archive order"/><ComboBoxItem Content="Name"/><ComboBoxItem Content="Largest"/><ComboBoxItem Content="Smallest"/>
+          </ComboBox>
+        </Grid>
+        <ListBox Name="Assets" Grid.Row="2" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemTemplate><DataTemplate><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <StackPanel><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Location}" FontSize="11" Opacity=".65" TextTrimming="CharacterEllipsis"/></StackPanel>
+            <TextBlock Grid.Column="1" Text="{Binding Size}" VerticalAlignment="Center" FontSize="12"/>
+          </Grid></DataTemplate></ListBox.ItemTemplate>
+        </ListBox>
+        <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto">
+          <Button Name="Prev" Content="Previous" IsEnabled="False"/><TextBlock Grid.Column="1" Name="Count" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          <Button Grid.Column="2" Name="Next" Content="Next" IsEnabled="False"/>
+        </Grid>
+      </Grid>
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
+      <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+        <TextBlock Name="Caption" Text="Preview" FontSize="18" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+        <WrapPanel Grid.Row="1" Name="Choices" IsVisible="False">
+          <ComboBox Name="Choice" MaxWidth="350" MinWidth="145"/>
+          <NumericUpDown Name="Record" Minimum="1" Maximum="1" Value="1" Increment="1" FormatString="0" Width="100" IsVisible="False" AutomationProperties.Name="Record number"/>
+          <ComboBox Name="Links" IsVisible="False" MaxWidth="210" AutomationProperties.Name="Array target"/>
+          <Button Name="Follow" Content="Follow array" IsVisible="False"/>
+        </WrapPanel>
+        <Grid Grid.Row="2">
+          <TextBox Name="Details" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="monospace" ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+          <Image Name="Picture" Stretch="Uniform" IsVisible="False"/>
+        </Grid>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8">
+          <Button Name="Up" Content="Parent archive" IsEnabled="False"/>
+          <Button Name="Enter" Content="Open archive" IsVisible="False"/>
+          <Button Name="Extract" Content="Extract selected" IsEnabled="False"/>
+          <Button Name="ExportObj" Content="Export OBJ" IsVisible="False"/>
+        </StackPanel>
+      </Grid>
+    </Grid>
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto"><TextBlock Name="Status" VerticalAlignment="Center" Text="Open an archive, folder or decoded resource." TextTrimming="CharacterEllipsis"/><Button Grid.Column="1" Name="Cancel" Content="Cancel" IsVisible="False"/></Grid>
+  </Grid>
+</Window>
