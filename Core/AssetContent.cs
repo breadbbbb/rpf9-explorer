@@ -32,7 +32,9 @@ public static class AssetContent
         bool Has(params string[] values) => words.Any(w => values.Contains(w, StringComparer.Ordinal));
         string ext = Path.GetExtension(path);
         bool audio = asset.Kind == "audio" || ext is ".awc" or ".wav" or ".ogg";
-        if (audio || e.IsNestedArchive)
+        bool audioArchive = e.IsNestedArchive && (path.StartsWith("sfx/") || path.StartsWith("audio/") || path.Contains("/audio/")
+            || Path.GetFileName(asset.Document.SourcePath).Equals("audio.rpf", StringComparison.OrdinalIgnoreCase));
+        if (audio || audioArchive)
         {
             string context = (asset.Document.ArchiveLocation + "/" + path).ToLowerInvariant();
             string[] tokens = context.Split(['/', '\\', '.', '_', '-', ' '], StringSplitOptions.RemoveEmptyEntries);
@@ -45,16 +47,24 @@ public static class AssetContent
             if (Token("vehicles")) return "Audio / Vehicles";
             if (Token("weapons")) return "Audio / Weapons";
             if (Token("animals")) return "Audio / Animals";
+            if (Token("props")) return "Audio / Props";
+            if (Token("resident")) return "Audio / Resident sounds";
+            if (Token("system")) return "Audio / System";
             if (Token("cloth")) return "Audio / Clothing";
             if (Token("doors")) return "Audio / Doors";
             if (Token("walla")) return "Audio / Crowd voices";
             if (asset.AudioCues.Count > 0 || Token("speech") && Token("scripted")) return "Audio / Dialogue / Scripted";
+            if (Token("speech") && Token("vofx")) return "Audio / Dialogue / Voice effects";
+            if (Token("speech") && Token("silent")) return "Audio / Dialogue / Silent";
             if (Token("speech") && Token("player")) return "Audio / Dialogue / Player";
             if (Token("speech") && Token("ped")) return "Audio / Dialogue / Pedestrians";
             if (Token("speech") || Token("conversations") || Token("dialogue")) return "Audio / Dialogue";
+            if (Token("score") && Token("stems")) return "Audio / Music / Score stems";
             if (Token("score")) return "Audio / Music / Score";
             if (Token("ambient") || Token("ambience")) return "Audio / Ambience";
-            if (Token("sfx") && Token("script")) return "Audio / Scripted sound effects";
+            if (Token("script")) return "Audio / Scripted sound effects";
+            if (Token("streams")) return "Audio / Streamed sounds";
+            if (audioArchive && Token("metadata")) return "Audio / Configuration";
         }
         string pool = Path.GetFileNameWithoutExtension(asset.SourcePath).ToLowerInvariant();
         if (asset.PoolTexture != null)
