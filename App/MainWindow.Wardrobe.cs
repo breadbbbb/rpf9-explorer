@@ -36,6 +36,8 @@ public partial class MainWindow
         var panel = new StackPanel(); root.Children.Add(new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
         var catalogues = new ComboBox { DisplayMemberPath = "Label", Margin = new Thickness(0, 5, 0, 8) };
         var search = new TextBox { Margin = new Thickness(0, 5, 0, 8), ToolTip = "Filter by outfit kit ID or indexed native component names. Separate terms with spaces to require each term." };
+        if (ReferenceEquals(sender, MatchingOutfitsButton) && FilesGrid.SelectedItem is FileRow row && WardrobeIndex.DrawableName(row.Entry) is { } native)
+            search.Text = native;
         var kits = new ComboBox { DisplayMemberPath = "Label", Margin = new Thickness(0, 5, 0, 12), IsEnabled = false, MaxDropDownHeight = 260 };
         var browse = new Button { Content = "Open catalogue file…", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
         var details = new TextBlock { Text = "Looking for wardrobe catalogues in loaded sources…", TextWrapping = TextWrapping.Wrap };
@@ -64,7 +66,7 @@ public partial class MainWindow
                 var keys = result.Selections.Where(s => s.DrawableKey != 0).Select(s => s.DrawableKey).Distinct().ToArray();
                 int matches = keys.Count(lookup.ContainsKey);
                 var names = keys.Where(lookup.ContainsKey).SelectMany(key => lookup[key]).Select(asset =>
-                    RageAssetKeys.TryGetNativeNameFromRecoveredEntry(asset.Entry.Path, out string name) ? name : "").Where(name => name.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
+                    WardrobeIndex.DrawableName(asset.Entry) ?? "").Where(name => name.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
                 var heads = names.Where(name => (name.StartsWith("head_", StringComparison.OrdinalIgnoreCase) || name.Contains("_head_", StringComparison.OrdinalIgnoreCase)) && !name.Contains("_eyes_", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.Ordinal).Take(2).ToArray();
                 string label = $"{kit.Id:X8} · {matches} / {keys.Length} model IDs indexed" + (heads.Length == 1 ? " · indexed " + heads[0] : "") + (result.Warnings.Count > 0 ? $" · {result.Warnings.Count} warnings" : "");
                 rows.Add(new(kit.Id, label, matches, keys.Length, $"{kit.Id:X8} 0x{kit.Id:X8} " + string.Join(' ', names)));
@@ -113,7 +115,7 @@ public partial class MainWindow
             {
                 int examined = 0;
                 foreach (var document in _documents.Values.ToArray())
-                    foreach (var entry in document.Entries.Where(e => e.CanExtract && (e.Extension is ".psin" or ".pso" || e.Path.Contains("metadata_PSIN", StringComparison.OrdinalIgnoreCase))).Take(2048))
+                    foreach (var entry in document.Entries.Where(e => e.CanExtract && (e.Extension is ".psin" or ".pso" or ".0drp" || e.Compression == RageResourceMetadata.EntryKind || e.Path.Contains("metadata_PSIN", StringComparison.OrdinalIgnoreCase))).Take(2048))
                     {
                         cancellation.ThrowIfCancellationRequested(); examined++;
                         try
@@ -122,7 +124,8 @@ public partial class MainWindow
                             {
                                 byte[] prefix = document.ReadPreview(entry, 65536, cancellation);
                                 if (prefix.AsSpan().IndexOf(new byte[] { 0xf5, 0x4c, 0xcb, 0x8d }) < 0) return null;
-                                return RageWardrobeCatalog.Decode(ArchiveReader.ReadRecoveredPayload(document, entry, cancellation));
+                                if (entry.Size is <= 0 or > RageWardrobeCatalog.MaxBytes) return null;
+                                return RageWardrobeCatalog.Decode(document.ReadPreview(entry, (int)entry.Size, cancellation));
                             }, cancellation);
                             if (parsed != null) choices.Add(new(Path.GetFileName(document.SourcePath) + " · " + entry.Offset.ToString("X"), parsed));
                         }
@@ -146,7 +149,7 @@ public partial class MainWindow
         var result = new Dictionary<ulong, List<WorkspaceAsset>>();
         foreach (var asset in assets)
         {
-            if (!RageAssetKeys.TryGetNativeNameFromRecoveredEntry(asset.Entry.Path, out string candidate)) continue;
+            if (WardrobeIndex.DrawableName(asset.Entry) is not { } candidate) continue;
             ulong key = RageAssetKeys.DrawableKey(candidate);
             if (!result.TryGetValue(key, out var matches)) result[key] = matches = [];
             matches.Add(asset);

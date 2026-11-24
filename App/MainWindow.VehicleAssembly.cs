@@ -282,7 +282,7 @@ public partial class MainWindow
         foreach (var asset in _assetIndex.Assets)
         {
             if (asset.Kind != "model" || !asset.Available) continue;
-            if (!string.Equals(VehicleAssembly.NormalizeVehicleBaseName(asset.Name), baseName, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.Equals(VehicleAssembly.NormalizeVehicleBaseName(WardrobeIndex.DrawableName(asset.Entry) ?? asset.Name), baseName, StringComparison.OrdinalIgnoreCase)) continue;
             string low = asset.Name.ToLowerInvariant();
             int rank = low.Contains("_hi", StringComparison.Ordinal) ? 3 : low.Contains("_mid", StringComparison.Ordinal) ? 2 : 1;
             if (rank > bestRank) { best = asset; bestRank = rank; if (rank == 3) break; }
@@ -294,10 +294,10 @@ public partial class MainWindow
     {
         if (_assetIndex == null) return null;
         return _assetIndex.Assets.FirstOrDefault(a => a.Kind == "model" && a.Available
-            && a.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            && (WardrobeIndex.DrawableName(a.Entry) ?? a.Name).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             && a.Name.Contains("_hi", StringComparison.OrdinalIgnoreCase))
             ?? _assetIndex.Assets.FirstOrDefault(a => a.Kind == "model" && a.Available
-            && a.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+            && (WardrobeIndex.DrawableName(a.Entry) ?? a.Name).StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool TryParseHexColor(string? hex, out Color color)

@@ -2,13 +2,60 @@ namespace RpfPreview.Core;
 
 public static class AssetContent
 {
+    public sealed record Section(string Path, string Label, string Parent, int Depth, int Count);
+
+    public static IEnumerable<Section> Sections(IEnumerable<WorkspaceAsset> assets)
+    {
+        var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var group in assets.GroupBy(a => a.ContentGroup, StringComparer.Ordinal))
+        {
+            int count = group.Count();
+            string prefix = "";
+            foreach (string label in group.Key.Split(" / "))
+            {
+                prefix = prefix.Length == 0 ? label : prefix + " / " + label;
+                counts[prefix] = counts.GetValueOrDefault(prefix) + count;
+            }
+        }
+        foreach (var (path, count) in counts)
+        {
+            string[] levels = path.Split(" / ");
+            yield return new(path, levels[^1], string.Join(" / ", levels[..^1]), levels.Length - 1, count);
+        }
+    }
+
     public static string Group(WorkspaceAsset asset)
     {
         var e = asset.Entry;
-        string path = e.Path.ToLowerInvariant().Replace('\\', '/');
+        string path = (e.ContentPathHint ?? e.Path).ToLowerInvariant().Replace('\\', '/');
         string[] words = (path + "/" + string.Join('/', e.EmbeddedModelNames) + "/" + asset.Texture?.Name).ToLowerInvariant().Split(['/', '.', '_', '-', ' '], StringSplitOptions.RemoveEmptyEntries);
         bool Has(params string[] values) => words.Any(w => values.Contains(w, StringComparer.Ordinal));
-        string ext = e.Extension;
+        string ext = Path.GetExtension(path);
+        bool audio = asset.Kind == "audio" || ext is ".awc" or ".wav" or ".ogg";
+        if (audio || e.IsNestedArchive)
+        {
+            string context = (asset.Document.ArchiveLocation + "/" + path).ToLowerInvariant();
+            string[] tokens = context.Split(['/', '\\', '.', '_', '-', ' '], StringSplitOptions.RemoveEmptyEntries);
+            bool Token(string word) => tokens.Contains(word, StringComparer.Ordinal);
+            var mount = context.Split(" / ").SelectMany(part => part.Split('/'))
+                .Select(part => part.Split('.')).FirstOrDefault(p => p.Length >= 3 && p[1] == "radiostation");
+            if (mount != null && mount[2].Length > 0) return "Audio / Radio stations / " + mount[2].Replace('_', ' ');
+            if (Token("policescanner") || Token("dispatch")) return "Audio / Police scanner / Dispatch";
+            if (Token("vehicles") && Token("engines")) return "Audio / Vehicles / Engines";
+            if (Token("vehicles")) return "Audio / Vehicles";
+            if (Token("weapons")) return "Audio / Weapons";
+            if (Token("animals")) return "Audio / Animals";
+            if (Token("cloth")) return "Audio / Clothing";
+            if (Token("doors")) return "Audio / Doors";
+            if (Token("walla")) return "Audio / Crowd voices";
+            if (asset.AudioCues.Count > 0 || Token("speech") && Token("scripted")) return "Audio / Dialogue / Scripted";
+            if (Token("speech") && Token("player")) return "Audio / Dialogue / Player";
+            if (Token("speech") && Token("ped")) return "Audio / Dialogue / Pedestrians";
+            if (Token("speech") || Token("conversations") || Token("dialogue")) return "Audio / Dialogue";
+            if (Token("score")) return "Audio / Music / Score";
+            if (Token("ambient") || Token("ambience")) return "Audio / Ambience";
+            if (Token("sfx") && Token("script")) return "Audio / Scripted sound effects";
+        }
         string pool = Path.GetFileNameWithoutExtension(asset.SourcePath).ToLowerInvariant();
         if (asset.PoolTexture != null)
         {
@@ -26,6 +73,12 @@ public static class AssetContent
             return "Audio / Radio stations";
         }
         if (Has("stations", "radiostations") && asset.Kind == "audio") return "Audio / Radio stations";
+        if (Has("speechevents", "speechcontextruledictionary", "speechcontext")) return "Audio / Dialogue / Metadata";
+        if (Has("scannerreportmetadata", "scannerreportgamestatemappings") || path.Contains("police_scanner", StringComparison.Ordinal)) return "Audio / Police scanner / Metadata";
+        if (asset.BankContent.HasFlag(AwcContent.Granular)) return "Audio / Granular sounds";
+        if (asset.BankContent.HasFlag(AwcContent.Midi)) return "Audio / MIDI sequences";
+        if (asset.BankContent.HasFlag(AwcContent.Multichannel)) return "Audio / Multichannel streams";
+        if (asset.BankContent.HasFlag(AwcContent.Animation)) return "Audio / Sounds with animation data";
         if (ext == ".ymap" || Has("ymap", "mapdata", "maptiles", "minimap", "mapzoomdata")) return "World / Maps";
         if (ext == ".ytyp" || Has("archetypes", "ytyp")) return "World / Archetypes";
         if (ext is ".ybn" or ".ynv" or ".ynd" || Has("navmesh", "collision", "pathnodes")) return "World / Collision and navigation";

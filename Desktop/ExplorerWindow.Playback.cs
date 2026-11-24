@@ -67,7 +67,7 @@ public partial class ExplorerWindow
     {
         var info = await Task.Run(() => AwcInfo.Inspect(a.SourcePath, a.Entry.Offset, a.Entry.Size), token) ?? throw new InvalidDataException("Invalid audio bank."); token.ThrowIfCancellationRequested(); bank = info;
         var streams = info.Streams.ToArray(); int first = Array.FindIndex(streams, s => s.SupportsPreview);
-        SetChoices(streams.Select(s => new ChoiceItem(s.Index, $"Stream {s.Index + 1} · {s.Id:X8} · {s.Channels} ch · {s.DurationSeconds:0.0}s")).ToArray(), first);
+        SetChoices(streams.Select(s => new ChoiceItem(s.Index, s.Label(a.AudioCues))).ToArray(), first);
         if (first >= 0) await OpenTrack(a, streams[first].Index, token); else Details.Text = "This bank contains no supported stream.";
     }
     private async Task OpenTrack(WorkspaceAsset a, int index, CancellationToken token)
@@ -76,7 +76,7 @@ public partial class ExplorerWindow
         try
         {
             var s = bank!.Streams.Single(s => s.Index == index); if (!s.SupportsPreview) throw new NotSupportedException($"Unsupported audio codec {s.Codec:X2}.");
-            Details.Text = $"Audio stream {s.Index + 1}\n{s.Channels} channels · {s.DecodedSampleRate:N0} Hz"; Attach(await MediaSession.Bank(a, s, next.Token), next.Token);
+            Details.Text = s.Label(a.AudioCues) + $"\n{s.Channels} channels · {s.DecodedSampleRate:N0} Hz"; Attach(await MediaSession.Bank(a, s, next.Token), next.Token);
         }
         finally { if (track == next) track = null; }
     }

@@ -43,6 +43,7 @@ public partial class MainWindow
         ClearFragmentChoices();
         _activeVehicleContext = null;
         if (AssembleVehicleButton != null) AssembleVehicleButton.Visibility = Visibility.Collapsed;
+        if (MatchingOutfitsButton != null) MatchingOutfitsButton.Visibility = Visibility.Collapsed;
         ClearModelAssemblyState();
         _audioTrackCancellation?.Cancel();
         _audioTrackCancellation?.Dispose();
@@ -207,6 +208,9 @@ public partial class MainWindow
         var document = decoded.Document;
         var entry = decoded.Entry;
         _decodedModel = model;
+        MatchingOutfitsButton.Visibility = FilesGrid.SelectedItem is FileRow { Asset: { } selected }
+            && selected.ContentGroup.StartsWith("Characters /", StringComparison.Ordinal) && WardrobeIndex.DrawableName(entry) != null
+            ? Visibility.Visible : Visibility.Collapsed;
         var wheelMounts = VehicleAssembly.ExtractWheelMounts(decoded.System.Span, model.DrawableOffset);
         UpdateVehicleAssemblyControls(document, entry, model, wheelMounts);
         var paintColor = ResolveVehiclePaintColor(document, model.Name);
@@ -260,8 +264,8 @@ public partial class MainWindow
         AssetSliceSelector.Visibility = Visibility.Collapsed;
         AssetExportButton.Content = "Save WAV…"; AssetExportButton.IsEnabled = false; AssetExportButton.ToolTip = "Save the decoded audio preview";
         _loadingAssetChoice = true;
-        AssetSelector.ItemsSource = info.Streams.Select(s => new AssetChoice(s.Index,
-            (s.IsStreamed ? $"Music channel {s.MusicChannel + 1}" : $"Stream {s.Index + 1}") + $" · {s.Id:X8} · {s.Channels} ch · {s.DurationSeconds:0.##} s" + (s.SupportsPreview ? "" : $" · codec {s.Codec:X2} unavailable"))).ToArray();
+        var cues = (FilesGrid.SelectedItem as FileRow)?.Asset?.AudioCues;
+        AssetSelector.ItemsSource = info.Streams.Select(s => new AssetChoice(s.Index, s.Label(cues))).ToArray();
         var first = info.Streams.FirstOrDefault(s => s.SupportsPreview);
         AssetSelector.SelectedItem = AssetSelector.Items.Cast<AssetChoice>().FirstOrDefault(c => c.Index == first?.Index);
         _loadingAssetChoice = false;

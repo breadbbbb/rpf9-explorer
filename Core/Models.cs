@@ -16,6 +16,8 @@ public sealed record ArchiveEntry(string Path, long StoredSize, long Size, long 
     public string? NameHash32 { get; init; }
     public string? NameHash64 { get; init; }
     public IReadOnlyList<string> EmbeddedModelNames { get; init; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContentPathHint { get; init; }
     public bool IsNameCandidate { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasVehicleMounts { get; init; }

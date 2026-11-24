@@ -29,7 +29,7 @@ public static class SearchCommand
         new("json", TakesValue: false)
     ];
 
-    private sealed record Row(string Id, string Kind, string Name, string Source, long Size, string Offset, bool Available, int? Slot);
+    private sealed record Row(string Id, string Kind, string Name, string Source, long Size, string Offset, bool Available, int? Slot, string Group, int NamedStreams);
 
     public static int Run(IReadOnlyList<string> args, CancellationToken token)
     {
@@ -52,7 +52,7 @@ public static class SearchCommand
 
     private static Row ToRow(WorkspaceAsset asset, AssetIds ids) => new(
         ids[asset], asset.Kind, AssetLabels.Name(asset), asset.SourceName, asset.Size,
-        asset.Entry.Offset.ToString("X10"), asset.Available, asset.Document.HasDecodedRpf9Index ? asset.Entry.Index : null);
+        asset.Entry.Offset.ToString("X10"), asset.Available, asset.Document.HasDecodedRpf9Index ? asset.Entry.Index : null, asset.ContentGroup, asset.AudioCues.Count);
 
     private static void PrintTable(IReadOnlyList<Row> rows)
     {

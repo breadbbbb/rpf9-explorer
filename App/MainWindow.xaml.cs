@@ -502,6 +502,7 @@ public partial class MainWindow : Window
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
         public string SizeLabel => !Entry.CanExtract && SortSize == 0 ? "—" : FormatSize(SortSize);
         public string EntryToolTip => (Asset?.SourcePath ?? "") + "\n" + (Asset?.LogicalPath ?? Entry.Path) + (Entry.Limitation == null ? "" : "\n" + Entry.Limitation)
+            + (Entry.ContentPathHint is { } hint ? "\nContent name hint: " + hint : "")
             + (Entry.IsNameCandidate ? "\nPath candidate matched by index hash" : "")
             + (Entry.EmbeddedModelNames.Count > 0 ? "\nEmbedded models: " + string.Join(", ", Entry.EmbeddedModelNames.Take(12))
                 + (Entry.EmbeddedModelNames.Count > 12 ? "…" : "") : "")
@@ -512,7 +513,7 @@ public partial class MainWindow : Window
         public string TypeLabel => Asset?.IsTextureChild == true ? "Texture" : Entry.Compression switch { "Recovered AWC" => "Audio bank", "Recovered model" => "Model", "Recovered texture dictionary" => "Texture folder", "RDS5 texture" => "Streaming texture", "Recovered raw deflate shader" => "Native shader", "Recovered clip dictionary" => "Clip dictionary", "Indexed child archive" => "Nested archive", RageResourceMetadata.EntryKind => RageResourceMetadata.EntryKind, "Indexed encrypted resource" or "Indexed resource" => "RAGE resource", _ => Entry.Extension };
         private string IndexedName => Entry.IsNameCandidate || Entry.EmbeddedModelNames.Count == 0 ? Entry.Name
             : Entry.EmbeddedModelNames[0] + (Entry.EmbeddedModelNames.Count > 1 ? $" (+{Entry.EmbeddedModelNames.Count - 1})" : "");
-        public string DisplayName => Asset?.Texture?.Name ?? (Asset?.Document.HasDecodedRpf9Index == true ? IndexedName : Entry.ResourceDrawableOffset is int drawable
+        public string DisplayName => Asset?.Texture?.Name ?? Asset?.ContentName ?? (Asset?.Document.HasDecodedRpf9Index == true ? IndexedName : Entry.ResourceDrawableOffset is int drawable
             ? Entry.Name.Split("_at_", StringSplitOptions.None)[0] + $" · child {drawable:X}"
             : Entry.Compression.StartsWith("Recovered Bink", StringComparison.Ordinal)
             ? "Movie " + Entry.Name.Split('_').ElementAtOrDefault(1) + Entry.Extension

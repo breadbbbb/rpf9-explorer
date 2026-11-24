@@ -36,9 +36,10 @@ public sealed class AssetSearchQuery
         foreach (var term in _terms)
         {
             bool match = term.Field switch {
+                "cue" => asset.AudioCues.Values.Any(v => term.Contains(v)),
                 "group" => term.Contains(asset.ContentGroup),
                 "type" => TypeMatches(asset.Kind, term.Value),
-                "name" => term.Contains(asset.Name) || asset.Entry.EmbeddedModelNames.Any(name => term.Contains(name)),
+                "name" => term.Contains(asset.Name) || term.Contains(asset.ContentName ?? "") || asset.Entry.EmbeddedModelNames.Any(name => term.Contains(name)),
                 "source" or "archive" => term.Contains(asset.SourcePath),
                 "format" => term.Contains(asset.Format),
                 "key" => term.Contains(asset.KeyText, term.Value.Replace("0x", "", StringComparison.OrdinalIgnoreCase)),

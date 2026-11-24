@@ -162,12 +162,12 @@ public partial class MainWindow
         root.Items.Add(outfits);
         var content = new TreeViewItem { Header = "Browse by content", IsExpanded = true };
         root.Items.Add(content);
-        foreach (var family in _allRows.Where(r => r.Asset != null).GroupBy(r => r.Asset!.ContentGroup.Split('/')[0].Trim()).OrderBy(g => g.Key))
+        var branches = new Dictionary<string, TreeViewItem> { [""] = content };
+        foreach (var group in AssetContent.Sections(_allRows.Select(r => r.Asset).OfType<WorkspaceAsset>()))
         {
-            var familyNode = new TreeViewItem { Header = $"{family.Key} ({family.Count():N0})", Tag = new Navigation(Group: family.Key) };
-            content.Items.Add(familyNode);
-            foreach (var group in family.GroupBy(r => r.Asset!.ContentGroup).Where(g => g.Key.Contains('/')).OrderBy(g => g.Key))
-                familyNode.Items.Add(new TreeViewItem { Header = $"{group.Key.Split('/')[1].Trim()} ({group.Count():N0})", Tag = new Navigation(Group: group.Key) });
+            var branch = new TreeViewItem { Header = $"{group.Label} ({group.Count:N0})", Tag = new Navigation(Group: group.Path) };
+            branches[group.Parent].Items.Add(branch);
+            branches.Add(group.Path, branch);
         }
         foreach (var source in _documents.Values.OrderBy(d => d.SourcePath, StringComparer.OrdinalIgnoreCase))
         {

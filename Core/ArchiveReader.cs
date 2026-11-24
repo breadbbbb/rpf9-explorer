@@ -85,7 +85,7 @@ public static class ArchiveReader
         using var stream = File.Open(parent.SourcePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Write | FileShare.Delete);
         indexed.CheckHeader(stream, parent.FileSize);
         return indexed.Provider.Open(parent.SourcePath, [.. indexed.Trail, entry.Index], entry.Offset, entry.Size,
-            $"{indexed.Label} / {entry.Name}", parent, token);
+            $"{indexed.Label} / {Path.GetFileName(entry.ContentPathHint ?? entry.Path)}", parent, token);
     }
 
     private static ArchiveDocument OpenTtpf(string path, long length, byte[] header)
@@ -556,7 +556,7 @@ public static class ArchiveReader
         public void Dispose() { Content.Dispose(); owner?.Dispose(); }
     }
 
-    internal static (string? Kind, string[]? Names) IdentifyIndexedResource(FileStream input, ArchiveEntry entry)
+    internal static (string? Kind, string[]? Names, bool WheelMounts) IdentifyIndexedResource(FileStream input, ArchiveEntry entry)
     {
         if (entry.ResourceSystemBytes is not int systemSize || systemSize < 64 || entry.Segments is not { Count: > 0 } segments)
             return default;
@@ -567,7 +567,7 @@ public static class ArchiveReader
             Span<byte> buffer = stackalloc byte[512];
             Span<byte> system = buffer[..Math.Min(buffer.Length, systemSize)];
             content.ReadExactly(system);
-            if (RageResourceMetadata.HasHeader(system, systemSize)) return (RageResourceMetadata.EntryKind, null);
+            if (RageResourceMetadata.HasHeader(system, systemSize)) return (RageResourceMetadata.EntryKind, null, false);
             if (entry.Size <= systemSize || systemSize > RageModelDecoder.MaxSystemBytes || entry.Size > 256L * 1024 * 1024)
                 return default;
             if (systemSize <= RageTextureDecoder.MaxSystemBytes && RageTextureDecoder.LooksLikeDictionary(system))
@@ -579,12 +579,28 @@ public static class ArchiveReader
                 system = metadata;
                 int graphicsSize = checked((int)(entry.Size - systemSize));
                 if (RageTextureDecoder.InspectMetadata(metadata, graphicsSize) != null)
-                    return ("Recovered texture dictionary", null);
+                    return ("Recovered texture dictionary", null, false);
             }
             bool dictionary = RageModelDecoder.LooksLikeDrawableDictionary(system);
             if (dictionary || RageModelDecoder.LooksLikeDrawable(system) || RageModelDecoder.LooksLikeFragment(system))
             {
-                return ("Recovered model", ReadIndexedModelNames(content, system, systemSize, dictionary));
+                if (!dictionary && systemSize >= 176 && RageModelDecoder.LooksLikeFragment(system) && !RageModelDecoder.LooksLikeDrawable(system))
+                {
+                    byte[] rented = ArrayPool<byte>.Shared.Rent(systemSize);
+                    try
+                    {
+                        var metadata = rented.AsSpan(0, systemSize);
+                        system.CopyTo(metadata);
+                        content.ReadExactly(metadata[system.Length..]);
+                        int drawable = checked((int)(BinaryPrimitives.ReadUInt64LittleEndian(metadata[24..]) - 0x50000000));
+                        ulong pointer = BinaryPrimitives.ReadUInt64LittleEndian(metadata[168..]);
+                        string? name = pointer >= 0x50000000 && pointer - 0x50000000 < (ulong)systemSize
+                            ? RageModelDecoder.DecodeModelName(metadata[(int)(pointer - 0x50000000)..]) : null;
+                        return ("Recovered model", name == null ? null : [name], VehicleAssembly.HasWheelMounts(RageSkeleton.ReadForDrawable(metadata, drawable)));
+                    }
+                    finally { ArrayPool<byte>.Shared.Return(rented); }
+                }
+                return ("Recovered model", ReadIndexedModelNames(content, system, systemSize, dictionary), false);
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or OverflowException) { }

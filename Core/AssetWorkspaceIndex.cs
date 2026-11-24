@@ -9,6 +9,11 @@ public sealed class WorkspaceAsset(ArchiveDocument Document, ArchiveEntry Entry,
     public ArchiveEntry Entry { get; } = Entry;
     public RageTextureInfo? Texture { get; } = Texture;
     public TtpfTextureInfo? PoolTexture { get; } = PoolTexture;
+    public AwcContent BankContent { get; internal set; }
+    public IReadOnlyDictionary<uint, string> AudioCues { get; internal set; } = DialogueCatalog.Empty;
+    private string? _contentName;
+    public string? ContentName => _contentName ??= Entry.ContentPathHint is { } hint ? Path.GetFileName(hint)
+        : AudioCues.Count > 0 ? AudioCues.OrderBy(p => p.Key).First().Value.Split(" · ")[0] + (AudioCues.Count > 1 ? $" (+{AudioCues.Count - 1} takes)" : "") : null;
     public string SourcePath => Document.SourcePath;
     public string SourceName => Path.GetFileName(SourcePath);
     public string Name => Texture?.Name ?? Entry.Name;
@@ -31,7 +36,7 @@ public sealed class WorkspaceAsset(ArchiveDocument Document, ArchiveEntry Entry,
     private string? _group;
     public string ContentGroup => _group ??= AssetContent.Group(this);
     private string? _search;
-    public string SearchText => _search ??= string.Join(' ', Name, ContentGroup, LogicalPath, SourceName, Kind, Format, Width.ToString(CultureInfo.InvariantCulture), Height.ToString(CultureInfo.InvariantCulture), KeyText, ComponentHint, Entry.NameHash32, Entry.NameHash64, string.Join(' ', Entry.EmbeddedModelNames));
+    public string SearchText => _search ??= string.Join(' ', Name, ContentGroup, Entry.ContentPathHint, Document.ArchiveLocation, string.Join(" ", AudioCues.Values), LogicalPath, SourceName, Kind, Format, Width.ToString(CultureInfo.InvariantCulture), Height.ToString(CultureInfo.InvariantCulture), KeyText, ComponentHint, Entry.NameHash32, Entry.NameHash64, string.Join(' ', Entry.EmbeddedModelNames));
 }
 
 public sealed record WorkspaceIndexProgress(int Completed, int Total, string Source);
@@ -55,27 +60,39 @@ public sealed class AssetWorkspaceIndex
         var children = new Dictionary<(string, string), IReadOnlyList<WorkspaceAsset>>(); var warnings = new List<string>();
         int total = sources.Sum(d => d.Entries.Count), completed = 0;
         foreach (var document in sources)
-        foreach (var entry in document.Entries)
         {
-            cancellationToken.ThrowIfCancellationRequested(); completed++;
-            if (entry.IsDirectory) continue;
-            var pool = document.TexturePool?.Textures.ElementAtOrDefault(entry.Index);
-            assets.Add(new(document, entry, PoolTexture: pool));
-            if (entry.Compression == "Recovered texture dictionary")
+            using var audioFile = document.Entries.Any(e => e.Compression == "Recovered AWC") ?
+                File.Open(document.SourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete) : null;
+            var dialogue = audioFile == null ? null : DialogueCatalog.Read(document, cancellationToken);
+            foreach (var entry in document.Entries)
             {
-                try
+                cancellationToken.ThrowIfCancellationRequested(); completed++;
+                if (entry.IsDirectory) continue;
+                var pool = document.TexturePool?.Textures.ElementAtOrDefault(entry.Index);
+                var asset = new WorkspaceAsset(document, entry, PoolTexture: pool);
+                if (audioFile != null && entry.Compression == "Recovered AWC" &&
+                    AwcRecovery.ReadValidated(audioFile, entry.Offset, entry.Size, false, true) is { } bank)
                 {
-                    int split = entry.ResourceSystemBytes ?? checked((int)entry.Segments![0].Size);
-                    byte[] system = document.ReadPreview(entry, split, cancellationToken);
-                    var dictionary = RageTextureDecoder.InspectMetadata(system, checked((int)(entry.Size - split)))
-                        ?? throw new InvalidDataException("Texture metadata is not a supported dictionary.");
-                    var list = dictionary.Textures.Select(t => new WorkspaceAsset(document, entry, t)).ToArray();
-                    children[(document.SourcePath, entry.Path)] = list; assets.AddRange(list);
+                    asset.BankContent = bank.Content;
+                    asset.AudioCues = dialogue!.Match(bank.StreamIds);
                 }
-                catch (Exception ex) when (ex is IOException or InvalidDataException or NotSupportedException or ArgumentException or OverflowException)
-                { warnings.Add($"{document.SourcePath} · {entry.Path}: {ex.Message}"); }
+                assets.Add(asset);
+                if (entry.Compression == "Recovered texture dictionary")
+                {
+                    try
+                    {
+                        int split = entry.ResourceSystemBytes ?? checked((int)entry.Segments![0].Size);
+                        byte[] system = document.ReadPreview(entry, split, cancellationToken);
+                        var dictionary = RageTextureDecoder.InspectMetadata(system, checked((int)(entry.Size - split)))
+                            ?? throw new InvalidDataException("Texture metadata is not a supported dictionary.");
+                        var list = dictionary.Textures.Select(t => new WorkspaceAsset(document, entry, t)).ToArray();
+                        children[(document.SourcePath, entry.Path)] = list; assets.AddRange(list);
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or NotSupportedException or ArgumentException or OverflowException)
+                    { warnings.Add($"{document.SourcePath} · {entry.Path}: {ex.Message}"); }
+                }
+                if (completed % 250 == 0 || entry.Compression == "Recovered texture dictionary") progress?.Report(new(completed, total, document.SourcePath));
             }
-            if (completed % 250 == 0 || entry.Compression == "Recovered texture dictionary") progress?.Report(new(completed, total, document.SourcePath));
         }
         progress?.Report(new(total, total, ""));
         return new(assets, children, warnings);

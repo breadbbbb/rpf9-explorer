@@ -6,9 +6,20 @@ using System.Text.Json;
 namespace RpfPreview.Core;
 
 
+[Flags]
+public enum AwcContent { None = 0, Animation = 1, Granular = 2, Midi = 4, Multichannel = 8 }
+
 public sealed record AwcStreamInfo(int Index, uint Id, int SampleRate, long Samples,
     int Codec, long DataOffset, long DataLength)
 {
+    public AwcContent Content { get; init; }
+    public string Label(IReadOnlyDictionary<uint, string>? cues = null)
+    {
+        string label = cues?.GetValueOrDefault(Id) ?? (Content.HasFlag(AwcContent.Granular) ? "Granular sound"
+            : Content.HasFlag(AwcContent.Midi) ? "MIDI sequence" : IsStreamed ? $"Channel {MusicChannel + 1}"
+            : Content.HasFlag(AwcContent.Animation) ? "Sound with animation data" : $"Stream {Index + 1}");
+        return $"{label} · {Id:X8} · {Channels} ch · {DurationSeconds:0.##} s" + (SupportsPreview ? "" : $" · codec {Codec:X2} unavailable");
+    }
     public int Channels { get; init; }
     public long DeclaredInterleavedSamples => Samples;
     public long? OpusFrameCountPerChannel { get; init; }
@@ -33,6 +44,8 @@ public sealed record AwcStreamInfo(int Index, uint Id, int SampleRate, long Samp
 
 public sealed record AwcInfo(long Length, IReadOnlyList<AwcStreamInfo> Streams)
 {
+    public AwcContent Content { get; init; }
+    public IReadOnlyList<uint> StreamIds { get; init; } = [];
     public int DeclaredStreams { get; init; }
     public bool HasOpaquePrefixTable { get; init; }
     public uint Flags { get; init; }
@@ -277,13 +290,13 @@ public static class AwcRecovery
         void Put32(int p, uint v) => BinaryPrimitives.WriteUInt32LittleEndian(h.AsSpan(p, 4), v);
     }
 
-    internal static AwcInfo? ReadValidated(FileStream stream, long offset, long available, bool includeStreamDetails = true)
+    internal static AwcInfo? ReadValidated(FileStream stream, long offset, long available, bool includeStreamDetails = true, bool collectIds = false)
     {
         long budget = MaxHeaderBytes + 16L * MaxStreams + 16;
-        return ReadValidated(stream, offset, available, ref budget, includeStreamDetails);
+        return ReadValidated(stream, offset, available, ref budget, includeStreamDetails, collectIds);
     }
 
-    private static AwcInfo? ReadValidated(FileStream stream, long offset, long available, ref long budget, bool includeStreamDetails = true)
+    private static AwcInfo? ReadValidated(FileStream stream, long offset, long available, ref long budget, bool includeStreamDetails = true, bool collectIds = false)
     {
         try
         {
@@ -327,10 +340,14 @@ public static class AwcRecovery
             int tagCursor = p;
             bool anyData = false;
             var audio = new List<AwcStreamInfo>();
+            AwcContent bankContent = AwcContent.None;
+            var ids = collectIds ? new uint[count] : [];
             var music = new List<(long Format, long FormatLength, long Data, long DataLength)>();
             for (int i = 0; i < count; i++)
             {
                 uint packed = U32(h, infoStart + i * 4);
+                if (collectIds) ids[i] = packed & 0x1fffffff;
+                AwcContent content = AwcContent.None;
                 int tagCount = (int)(packed >> 29);
                 long dataOffset = -1, dataLength = 0, formatOffset = -1, formatLength = 0, musicOffset = -1, musicLength = 0;
                 for (int t = 0; t < tagCount; t++, tagCursor += 8)
@@ -340,6 +357,8 @@ public static class AwcRecovery
                     long size = (long)((tag >> 28) & 0x0FFFFFFF), rel = (long)(tag & 0x0FFFFFFF);
                     if (size != 0 && (rel < h.Length || rel > available || size > available - rel)) return null;
                     extent = Math.Max(extent, checked(rel + size));
+                    if (size != 0) content |= type switch { 0x5c => AwcContent.Animation, 0x5a or 0xd9 => AwcContent.Granular,
+                        0x68 => AwcContent.Midi, 0x48 => AwcContent.Multichannel, _ => AwcContent.None };
                     if (type == 0x55)
                     {
                         if (dataOffset >= 0) return null;
@@ -352,6 +371,7 @@ public static class AwcRecovery
                         formatOffset = rel; formatLength = size;
                     }
                 }
+                bankContent |= content;
                 if (!includeStreamDetails) continue;
                 if (musicOffset >= 0 && dataOffset >= 0 && dataLength > 0) music.Add((musicOffset, musicLength, dataOffset, dataLength));
                 if (formatLength < 32 || dataOffset < 0 || dataLength == 0) continue;
@@ -362,7 +382,7 @@ public static class AwcRecovery
                 int rate = U16(format, 8), codec = format[28], channels = format[29];
                 if (rate is < 1000 or > 192000 || channels is < 1 or > 8 || samples > 192000L * 60 * 60 * 24) return null;
                 if (codec == 0x0B && (channels > 2 || dataLength % 2048 != 0)) return null;
-                audio.Add(new(i, packed & 0x1FFFFFFF, rate, samples, codec, dataOffset, dataLength) { Channels = channels, OpusFrameCountPerChannel = codec == 0x0B ? (long?)U32(format, 12) : null });
+                audio.Add(new(i, packed & 0x1FFFFFFF, rate, samples, codec, dataOffset, dataLength) { Content = content, Channels = channels, OpusFrameCountPerChannel = codec == 0x0B ? (long?)U32(format, 12) : null });
             }
             foreach (var descriptor in music)
             {
@@ -385,11 +405,11 @@ public static class AwcRecovery
                     for (int i = 0; i < count; i++) if ((U32(h, infoStart + i * 4) & 0x1FFFFFFF) == id) { index = i; break; }
                     if (audio.Any(x => x.Index == index)) continue;
                     audio.Add(new(index, id, rate, samples, codec, descriptor.Data, descriptor.DataLength)
-                    { Channels = 1, IsStreamed = true, MusicChannel = ch, BlockCount = (int)blockCount, BlockSize = (int)blockSize, OpusFrameCountPerChannel = samples });
+                    { Content = AwcContent.Multichannel, Channels = 1, IsStreamed = true, MusicChannel = ch, BlockCount = (int)blockCount, BlockSize = (int)blockSize, OpusFrameCountPerChannel = samples });
                 }
             }
             return (anyData || count == 0) && extent <= available
-                ? new AwcInfo(extent, audio) { DeclaredStreams = count, HasOpaquePrefixTable = extra, Flags = flags }
+                ? new AwcInfo(extent, audio) { Content = bankContent, StreamIds = ids, DeclaredStreams = count, HasOpaquePrefixTable = extra, Flags = flags }
                 : null;
         }
         catch (Exception ex) when (ex is ArgumentOutOfRangeException or OverflowException or EndOfStreamException)

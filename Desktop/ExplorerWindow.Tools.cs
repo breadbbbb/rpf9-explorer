@@ -103,11 +103,8 @@ public partial class ExplorerWindow
         {
             var assets = index.Assets.Where(a => doc == null || a.Document == doc).ToArray();
             var places = new List<Place> { new("All content") };
-            foreach (var family in assets.GroupBy(a => a.ContentGroup.Split(" / ")[0]).OrderBy(g => g.Key))
-            {
-                places.Add(new Place($"{family.Key} ({family.Count():N0})", Group: family.Key));
-                places.AddRange(family.GroupBy(a => a.ContentGroup).Where(g => g.Key != family.Key).OrderBy(g => g.Key).Select(g => new Place($"    {g.Key} ({g.Count():N0})", Group: g.Key)));
-            }
+            foreach (var section in AssetContent.Sections(assets))
+                places.Add(new Place(new string(' ', section.Depth * 3) + $"{section.Label} ({section.Count:N0})", Group: section.Path));
             places.AddRange(assets.Select(a => a.Entry.Folder).Where(p => p.Length > 0).Distinct(StringComparer.Ordinal).Order().Select(p => new Place("Folder   " + p, p)));
             Folders.ItemsSource = places; Folders.SelectedItem = places.FirstOrDefault(p => p.Folder == folder && p.Group == group) ?? places[0];
         }

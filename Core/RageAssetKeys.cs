@@ -35,6 +35,8 @@ public static class RageAssetKeys
         name = candidate; return true;
     }
 
+    internal static string PathHash(string path) => MurmurLow64(Encoding.ASCII.GetBytes(path.ToLowerInvariant())).ToString("x16");
+
     private static ulong Rotate(ulong n, int bits) => (n << bits) | (n >> (64 - bits));
     private static ulong FinalizeHash(ulong n)
     {

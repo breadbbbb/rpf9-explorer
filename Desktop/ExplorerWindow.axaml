@@ -59,7 +59,7 @@
           <Button Name="Up" Content="Parent archive" IsEnabled="False"/>
           <Button Name="Enter" Content="Open archive" IsVisible="False"/>
           <Button Name="Extract" Content="Extract selected" IsEnabled="False"/>
-          <Button Name="ExportObj" Content="Export OBJ" IsVisible="False"/><Button Name="QuickVehicle" Content="Assemble vehicle" IsVisible="False"/><Button Name="QuickStage" Content="Stage replacement…" IsEnabled="False"/></WrapPanel>
+          <Button Name="ExportObj" Content="Export OBJ" IsVisible="False"/><Button Name="QuickOutfit" Content="Find outfits" IsVisible="False"/><Button Name="QuickVehicle" Content="Assemble vehicle" IsVisible="False"/><Button Name="QuickStage" Content="Stage replacement…" IsEnabled="False"/></WrapPanel>
         </StackPanel>
       </Grid>
     </Grid>

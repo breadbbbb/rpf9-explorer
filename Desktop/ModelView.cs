@@ -54,13 +54,21 @@ internal sealed record ModelView(RageModel Model, IReadOnlyDictionary<int, RageT
     {
         if (Path.GetExtension(path).Equals(".dds", StringComparison.OrdinalIgnoreCase)) return DdsTextureReader.DecodeTexturePixels(File.ReadAllBytes(path));
         using var stream = File.OpenRead(path);
-        using var image = Avalonia.Media.Imaging.Bitmap.DecodeToWidth(stream, 1024);
-        using var converted = new Avalonia.Media.Imaging.RenderTargetBitmap(image.PixelSize);
-        using (var context = converted.CreateDrawingContext()) context.DrawImage(image, new Avalonia.Rect(image.Size), new Avalonia.Rect(0, 0, image.PixelSize.Width, image.PixelSize.Height));
-        var bytes = new byte[checked(image.PixelSize.Width * image.PixelSize.Height * 4)];
-        var handle = System.Runtime.InteropServices.GCHandle.Alloc(bytes, System.Runtime.InteropServices.GCHandleType.Pinned);
-        try { converted.CopyPixels(new Avalonia.PixelRect(image.PixelSize), handle.AddrOfPinnedObject(), bytes.Length, image.PixelSize.Width * 4); } finally { handle.Free(); }
-        return new(image.PixelSize.Width, image.PixelSize.Height, bytes);
+        using var codec = SkiaSharp.SKCodec.Create(stream) ?? throw new InvalidDataException("Unrecognized replacement image.");
+        var original = codec.Info;
+        if (original.Width <= 0 || original.Height <= 0 || (long)original.Width * original.Height > 64 * 1024 * 1024)
+            throw new InvalidDataException("Image dimensions exceed the preview budget.");
+        var scaled = codec.GetScaledDimensions(Math.Min(1f, 1024f / Math.Max(original.Width, original.Height)));
+        var info = new SkiaSharp.SKImageInfo(scaled.Width, scaled.Height, SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Unpremul);
+        using var bitmap = new SkiaSharp.SKBitmap(info);
+        if (codec.GetPixels(info, bitmap.GetPixels()) != SkiaSharp.SKCodecResult.Success)
+            throw new InvalidDataException("The replacement image could not be decoded.");
+        float factor = Math.Min(1f, 1024f / Math.Max(info.Width, info.Height));
+        using var resized = factor < 1f ? bitmap.Resize(info.WithSize(Math.Max(1, (int)(info.Width * factor)), Math.Max(1, (int)(info.Height * factor))), SkiaSharp.SKFilterQuality.Medium) : null;
+        var result = resized ?? bitmap;
+        var pixels = new byte[checked(result.Width * result.Height * 4)];
+        System.Runtime.InteropServices.Marshal.Copy(result.GetPixels(), pixels, 0, pixels.Length);
+        return new(result.Width, result.Height, pixels);
     }
 
     public RageTexturePixels Render(float yaw, float pitch, float zoom, CancellationToken token, float panX = 0, float panY = 0)

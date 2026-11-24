@@ -9,6 +9,7 @@ public static class AssetLabels
     {
         var entry = asset.Entry;
         if (asset.Texture is not null) return asset.Texture.Name;
+        if (asset.ContentName != null) return asset.ContentName;
         if (asset.Document.HasDecodedRpf9Index && !entry.IsNameCandidate && entry.EmbeddedModelNames.Count > 0) return entry.EmbeddedModelNames[0];
         if (entry.Compression == "Recovered model") return entry.Name.Split("_at_", StringSplitOptions.None)[0];
         return entry.Name;

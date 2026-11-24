@@ -21,6 +21,7 @@ public partial class ExplorerWindow
         Hook(AssemblyInfo, () => { DisplayText(assemblyDetails); return Task.CompletedTask; });
         Hook(ResetCam, async () => { yaw = -0.55f; pitch = 0.25f; zoom = 1; panX = panY = 0; await RenderModel(); });
         Hook(Wardrobe, ChooseWardrobe);
+        QuickOutfit.Click += async (_, _) => await Guard(() => OpenWardrobe(WardrobeIndex.DrawableName(Selected!.Asset.Entry)));
     }
     private float panX, panY;
     private bool panning;
@@ -30,6 +31,8 @@ public partial class ExplorerWindow
         Queued.Header = $"Preview queued parts ({parts.Count})"; Queued.IsEnabled = ClearParts.IsEnabled = parts.Count > 0;
         var n = SelectedRows().Count(a => a.Available && a.Kind == "model"); AddParts.IsEnabled = n > 0; Together.IsEnabled = n > 1;
         Vehicle.IsEnabled = QuickVehicle.IsVisible = !showingAssembly && mounts.Count > 0 && modelView != null;
+        QuickOutfit.IsVisible = !showingAssembly && Selected?.Asset is { Kind: "model" } a
+            && a.ContentGroup.StartsWith("Characters /", StringComparison.Ordinal) && WardrobeIndex.DrawableName(a.Entry) != null;
         AssemblyInfo.IsEnabled = showingAssembly; ResetCam.IsEnabled = modelView != null;
     }
     private async Task Manual(WorkspaceAsset[] assets)
@@ -60,7 +63,8 @@ public partial class ExplorerWindow
     }
     private sealed record Kit(RageWardrobeCatalog Catalog, uint Id, string Source, string Names, int Found, int Total)
     { public override string ToString() => $"{Id:X8}   {Found}/{Total} models   {Names}"; }
-    private async Task ChooseWardrobe()
+    private Task ChooseWardrobe() => OpenWardrobe(null);
+    private async Task OpenWardrobe(string? component)
     {
         WardrobeIndex? data = null;
         await Busy(async t => { var docs = documents.ToArray(); data = wardrobeIndex ??= await Task.Run(() => WardrobeIndex.Build(docs, t), t); });
@@ -79,7 +83,7 @@ public partial class ExplorerWindow
         {
             if (catalogs.SelectedIndex < 0) { kits = []; FilterKits(); return; }
             var s = sources[catalogs.SelectedIndex]; var result = new List<Kit>();
-            foreach (var item in s.Catalog.Kits) { try { var res = s.Catalog.Resolve(item.Id); var keys = res.Selections.Select(x => x.DrawableKey).Where(k => k != 0).Distinct().ToArray(); var visible = keys.Select(k => names[k].FirstOrDefault()?.Name).OfType<string>().ToArray(); result.Add(new(s.Catalog, item.Id, s.SourcePath, string.Join(" ", visible), visible.Length, keys.Length)); } catch (InvalidDataException) { } }
+            foreach (var item in s.Catalog.Kits) { try { var res = s.Catalog.Resolve(item.Id); var keys = res.Selections.Select(x => x.DrawableKey).Where(k => k != 0).Distinct().ToArray(); var visible = keys.Select(k => names[k].FirstOrDefault() is { } part ? WardrobeIndex.DrawableName(part.Entry) : null).OfType<string>().ToArray(); result.Add(new(s.Catalog, item.Id, s.SourcePath, string.Join(" ", visible), visible.Length, keys.Length)); } catch (InvalidDataException) { } }
             kits = result.OrderByDescending(k => k.Found == k.Total && k.Total > 0).ThenBy(k => k.Id).ToArray(); FilterKits();
         }
         void SourcesChanged() { catalogs.ItemsSource = sources.Select(s => Path.GetFileName(s.SourcePath) + $" @ {s.Offset:X}").ToArray(); catalogs.SelectedIndex = sources.Count - 1; }
@@ -87,8 +91,7 @@ public partial class ExplorerWindow
         choose.Click += (_, _) => { if (list.SelectedItem is Kit k) { chosen = k; win.Close(); } };
         import.Click += async (_, _) => { try { var file = (await win.StorageProvider.OpenFilePickerAsync(new() { Title = "Open wardrobe catalogue" })).FirstOrDefault()?.TryGetLocalPath(); if (file == null) return; if (new FileInfo(file).Length > 64 * 1024 * 1024) throw new InvalidDataException("Catalogue exceeds 64 MiB."); var cat = RageWardrobeCatalog.Decode(await File.ReadAllBytesAsync(file)) ?? throw new InvalidDataException("Unrecognized wardrobe catalogue."); sources.Add(new(file, 0, cat)); SourcesChanged(); } catch (Exception ex) { status.Text = ex.Message; } };
         SourcesChanged();
-        if (Selected?.Asset is { Kind: "model" } selected && WardrobeIndex.DrawableKey(selected.Entry) is { } key && names[key].FirstOrDefault() is { } part)
-            query.Text = part.Name;
+        query.Text = component;
         if (sources.Count == 0) status.Text = "Open a catalogue or scan the loaded archives for wardrobe metadata.";
         await win.ShowDialog(this); if (chosen != null) await Assemble(b => b.Outfit(chosen.Catalog, chosen.Id, data));
     }

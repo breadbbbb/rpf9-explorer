@@ -21,7 +21,46 @@ public sealed class Rpf9IndexProvider
     private sealed record Block(long Offset, long StoredBytes, long DecodedBytes, bool Raw);
     private readonly Configuration _settings;
 
-    private Rpf9IndexProvider(Configuration settings) { _settings = settings; }
+    private readonly Lazy<Dictionary<(string Archive, int Slot, string Short, string Long), string?>> _hints;
+    private Rpf9IndexProvider(Configuration settings)
+    {
+        _settings = settings;
+        _hints = new(() => ReadContentHints(settings.Names));
+    }
+
+    private static Dictionary<(string, int, string, string), string?> ReadContentHints(string? file)
+    {
+        var hints = new Dictionary<(string, int, string, string), string?>();
+        if (file == null) return hints;
+        try
+        {
+            using var input = File.OpenRead(file);
+            if (input.Length > 32 * 1024 * 1024) return hints;
+            using var dictionary = JsonDocument.Parse(input, new() { MaxDepth = 24 });
+            if (dictionary.RootElement.ValueKind != JsonValueKind.Array) return hints;
+            foreach (var record in dictionary.RootElement.EnumerateArray())
+            {
+                if (record.ValueKind != JsonValueKind.Object || !record.TryGetProperty("bothHashesMatch", out var both)
+                    || both.ValueKind != JsonValueKind.True || !record.TryGetProperty("entry", out var entry)
+                    || entry.ValueKind != JsonValueKind.Object || !record.TryGetProperty("candidate", out var candidate)
+                    || candidate.ValueKind != JsonValueKind.Object || Number(entry, "typeByte") is not int type
+                    || type != Number(candidate, "logicalType") || Number(entry, "entry") is not int slot || slot < 0) continue;
+                var archive = SafeCandidate(String(entry, "archive")?.Replace('\\', '/'));
+                var name = SafeCandidate(String(candidate, "candidatePath")?.Replace('\\', '/'));
+                var shortHash = String(entry, "hash32");
+                var longHash = String(entry, "hash64");
+                if (archive == null || name == null || !ValidHash(shortHash, 8) || !ValidHash(longHash, 16)) continue;
+                var key = (archive.ToLowerInvariant(), slot, shortHash!.ToLowerInvariant(), longHash!.ToLowerInvariant());
+                if (!hints.TryAdd(key, name) && !string.Equals(hints[key], name, StringComparison.OrdinalIgnoreCase)) hints[key] = null;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { hints.Clear(); }
+        return hints;
+
+        static string? String(JsonElement e, string key) => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        static int? Number(JsonElement e, string key) => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int n) ? n : null;
+    }
+
 
     public static Rpf9IndexProvider Load(string configurationPath)
     {
@@ -73,18 +112,31 @@ public sealed class Rpf9IndexProvider
         byte[] header = source.CheckHeader(input, catalog.FileSize);
         var entries = new ArchiveEntry[catalog.Entries.Length];
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var hintArchives = new List<string>();
+        if (trail.Length == 0 && _settings.Names != null)
+        {
+            string[] components = Path.GetFullPath(path).Replace('\\', '/').ToLowerInvariant().Split('/');
+            for (int depth = 1; depth <= components.Length; depth++) hintArchives.Add(string.Join("/", components[^depth..]));
+        }
         for (int i = 0; i < entries.Length; i++)
         {
             token.ThrowIfCancellationRequested();
             Row row = catalog.Entries[i];
             if (row == null || row.Slot != i) throw new InvalidDataException("Decoder returned invalid member slots.");
-            entries[i] = ReadEntry(row, source, paths);
+            var member = ReadEntry(row, source, paths);
+            if (!member.IsNameCandidate && row.Hash32 != null && row.Hash64 != null)
+            {
+                var matches = hintArchives.Select(a => _hints.Value.GetValueOrDefault((a, i, row.Hash32.ToLowerInvariant(), row.Hash64.ToLowerInvariant())))
+                    .OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).Take(2).ToArray();
+                if (matches.Length == 1) member = member with { ContentPathHint = matches[0] };
+            }
+            entries[i] = member;
         }
         foreach (var entry in entries.Where(e => e.IsResource && e.CanExtract).OrderBy(e => e.Offset))
         {
             token.ThrowIfCancellationRequested();
-            var (kind, names) = ArchiveReader.IdentifyIndexedResource(input, entry);
-            if (kind != null) entries[entry.Index] = entry with { Compression = kind, EmbeddedModelNames = names ?? [] };
+            var (kind, names, wheelMounts) = ArchiveReader.IdentifyIndexedResource(input, entry);
+            if (kind != null) entries[entry.Index] = entry with { Compression = kind, EmbeddedModelNames = names ?? [], HasVehicleMounts = wheelMounts };
         }
         var metadata = new Dictionary<string, string>
         {
@@ -96,10 +148,12 @@ public sealed class Rpf9IndexProvider
             ["Archive location"] = label,
             ["Offset column"] = "Absolute offset in the source file"
         };
-        return new(path, "RPF9", catalog.FileSize, entries, metadata, null, header[..Math.Min(4096, header.Length)], true)
+        var document = new ArchiveDocument(path, "RPF9", catalog.FileSize, entries, metadata, null, header[..Math.Min(4096, header.Length)], true)
         {
             IndexedRpf9Source = source
         };
+        if (parent == null) AudioMounts.Identify(document, entries, token);
+        return document;
     }
 
     private static ArchiveEntry ReadEntry(Row row, Rpf9IndexedSource source, HashSet<string> paths)

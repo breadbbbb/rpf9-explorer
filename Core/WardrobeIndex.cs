@@ -106,8 +106,15 @@ public sealed class WardrobeIndex
         return matches.Length == 1 && matches[0] >> 24 == 255 ? matches[0] : null;
     }
 
-    public static ulong? DrawableKey(ArchiveEntry entry)
-        => RageAssetKeys.TryGetNativeNameFromRecoveredEntry(entry.Path, out string name) ? RageAssetKeys.DrawableKey(name) : null;
+    public static string? DrawableName(ArchiveEntry entry)
+    {
+        if (RageAssetKeys.TryGetNativeNameFromRecoveredEntry(entry.Path, out string name)) return name;
+        if (entry.EmbeddedModelNames is not [var embedded] || embedded.Length is < 1 or > 255 ||
+            embedded.Any(char.IsControl) || embedded.IndexOfAny(['/', '\\']) >= 0 || embedded.StartsWith('.')) return null;
+        return embedded;
+    }
+
+    public static ulong? DrawableKey(ArchiveEntry entry) => DrawableName(entry) is { } name ? RageAssetKeys.DrawableKey(name) : null;
 
     private static bool IsMetadata(ArchiveEntry entry)
         => entry.CanExtract && (entry.Extension is ".psin" or ".pso" or ".0drp" || entry.Compression==RageResourceMetadata.EntryKind || entry.Path.Contains("metadata_PSIN", StringComparison.OrdinalIgnoreCase));

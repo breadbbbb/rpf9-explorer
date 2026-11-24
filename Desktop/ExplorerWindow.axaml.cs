@@ -21,8 +21,8 @@ public partial class ExplorerWindow : Window
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
         public void SetThumbnail(Bitmap image) { Thumb=image; PropertyChanged?.Invoke(this,new(nameof(Thumb))); }
         public void MarkEdited(bool value) { if(Edited==value)return; Edited=value; PropertyChanged?.Invoke(this,new(nameof(Location))); }
-        public string Name => Asset.Texture?.Name ?? (Asset.Entry.IsNameCandidate ? Asset.Name : Asset.Entry.EmbeddedModelNames.FirstOrDefault() ?? Asset.Name);
-        public string Location => (Edited ? "Staged · " : "") + $"{Asset.Kind} · {Asset.Document.ArchiveLocation}";
+        public string Name => Asset.Texture?.Name ?? Asset.ContentName ?? (Asset.Entry.IsNameCandidate ? Asset.Name : Asset.Entry.EmbeddedModelNames.FirstOrDefault() ?? Asset.Name);
+        public string Location => (Edited ? "Staged · " : "") + $"{Asset.Kind} · {Asset.Document.ArchiveLocation}" + (Asset.Entry.ContentPathHint is { } hint ? " · Content hint: " + hint : "");
         public string Size => SizeText(Asset.Size);
     }
     private sealed record SourceItem(ArchiveDocument? Document)
