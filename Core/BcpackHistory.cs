@@ -4,23 +4,11 @@
 
 
 
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Text.Json;
 
 namespace RpfPreview.Core;
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 public sealed class BcpackHistory
 {
@@ -32,10 +20,14 @@ public sealed class BcpackHistory
         (5, "bc5", [256, 256, 256, 256])
     ];
 
+    private static readonly int[] Bc6hEndpointWidths = [16, 10, 6, 6];
+
     internal Bc1HistoryEntry[] Bc1 { get; }
     internal Bc3HistoryEntry[] Bc3 { get; }
     internal Bc4HistoryEntry[] Bc4 { get; }
     internal Bc5HistoryEntry[] Bc5 { get; }
+    internal Bc6hHistoryTable Bc6h { get; }
+    internal Bc7HistoryTable Bc7 { get; }
 
 
     public string Source { get; }
@@ -43,9 +35,24 @@ public sealed class BcpackHistory
 
     public IReadOnlyList<string> Codecs { get; }
 
-    private BcpackHistory(string source, Bc1HistoryEntry[] bc1, Bc3HistoryEntry[] bc3, Bc4HistoryEntry[] bc4, Bc5HistoryEntry[] bc5, IReadOnlyList<string> codecs)
+    private BcpackHistory(
+        string source,
+        Bc1HistoryEntry[] bc1,
+        Bc3HistoryEntry[] bc3,
+        Bc4HistoryEntry[] bc4,
+        Bc5HistoryEntry[] bc5,
+        Bc6hHistoryTable bc6h,
+        Bc7HistoryTable bc7,
+        IReadOnlyList<string> codecs)
     {
-        Source = source; Bc1 = bc1; Bc3 = bc3; Bc4 = bc4; Bc5 = bc5; Codecs = codecs;
+        Source = source;
+        Bc1 = bc1;
+        Bc3 = bc3;
+        Bc4 = bc4;
+        Bc5 = bc5;
+        Bc6h = bc6h;
+        Bc7 = bc7;
+        Codecs = codecs;
     }
 
 
@@ -61,6 +68,7 @@ public sealed class BcpackHistory
         if (!directory && !File.Exists(full)) throw new FileNotFoundException($"BCPack history path not found: {path}", path);
 
         var parsed = new Dictionary<int, Section>();
+        var loadedCodecs = new List<string>(6);
         JsonElement? file = null;
         foreach (var (codec, key, mods) in Specs)
         {
@@ -75,7 +83,25 @@ public sealed class BcpackHistory
                 file ??= ReadDocument(full);
                 section = FindSection(file.Value, key);
             }
-            if (section is { } s) parsed[codec] = ParseSection(s, key, mods);
+            if (section is { } s)
+            {
+                parsed[codec] = ParseSection(s, key, mods);
+                loadedCodecs.Add(key);
+            }
+        }
+
+        Bc6hHistoryTable bc6h = Bc6hHistoryTable.Empty;
+        if (FindBptcSection(full, directory, ref file, "bc6h", "endpointHistory") is { } bc6hSec)
+        {
+            bc6h = ParseBc6h(bc6hSec);
+            loadedCodecs.Add("bc6h");
+        }
+
+        Bc7HistoryTable bc7 = Bc7HistoryTable.Empty;
+        if (FindBptcSection(full, directory, ref file, "bc7", "historyEndpoints") is { } bc7Sec)
+        {
+            bc7 = ParseBc7(bc7Sec);
+            loadedCodecs.Add("bc7");
         }
 
         return new BcpackHistory(
@@ -84,7 +110,9 @@ public sealed class BcpackHistory
             Merge(3, parsed, BcpackTables.Bc3History, h => h.Status, (v, st) => new Bc3HistoryEntry((byte)v[0], (byte)v[1], (byte)v[2], (byte)v[3], (byte)v[4], (byte)v[5], (byte)v[6], (byte)v[7], st)),
             Merge(4, parsed, BcpackTables.Bc4History, h => h.Status, (v, st) => new Bc4HistoryEntry((byte)v[0], (byte)v[1], st)),
             Merge(5, parsed, BcpackTables.Bc5History, h => h.Status, (v, st) => new Bc5HistoryEntry((byte)v[0], (byte)v[1], (byte)v[2], (byte)v[3], st)),
-            Specs.Where(s => parsed.ContainsKey(s.Codec)).Select(s => s.Key).ToArray());
+            bc6h,
+            bc7,
+            loadedCodecs.ToArray());
     }
 
     private sealed record Section(Dictionary<int, int[]> Confirmed, Dictionary<int, int[]> Provisional, bool Replace);
@@ -113,6 +141,29 @@ public sealed class BcpackHistory
         return null;
     }
 
+    private static JsonElement? FindBptcSection(string full, bool directory, ref JsonElement? file, string key, string markerKey)
+    {
+        JsonElement doc;
+        if (directory)
+        {
+            string candidate = Path.Combine(full, key + ".json");
+            if (!File.Exists(candidate)) return null;
+            doc = ReadDocument(candidate);
+        }
+        else
+        {
+            file ??= ReadDocument(full);
+            doc = file.Value;
+        }
+        if (doc.TryGetProperty(key, out var section))
+            return section.ValueKind == JsonValueKind.Null ? null : section;
+        if (doc.TryGetProperty("codec", out var codec) && codec.ValueKind == JsonValueKind.String && codec.GetString() == key)
+            return doc;
+        if (doc.TryGetProperty(markerKey, out _))
+            return doc;
+        return null;
+    }
+
     private static Section ParseSection(JsonElement sec, string key, int[] mods)
     {
         if (sec.ValueKind != JsonValueKind.Object) throw new InvalidDataException($"{key} history section must be a JSON object");
@@ -122,6 +173,230 @@ public sealed class BcpackHistory
         var provisional = ParseMap(sec, "provisional", key, mods);
         bool replace = sec.TryGetProperty("replace", out var r) && IsTruthy(r);
         return new(confirmed, provisional, replace);
+    }
+
+    private static Bc6hHistoryTable ParseBc6h(JsonElement sec)
+    {
+        if (sec.ValueKind != JsonValueKind.Object) throw new InvalidDataException("bc6h history section must be a JSON object");
+        if (sec.TryGetProperty("codec", out var codec) && !(codec.ValueKind == JsonValueKind.String && codec.GetString() == "bc6h"))
+            throw new InvalidDataException($"expected codec 'bc6h', got {(codec.ValueKind == JsonValueKind.String ? $"'{codec.GetString()}'" : codec.GetRawText())}");
+
+        int[] eh = new int[256 * 12];
+        int[] ih = new int[256 * 16];
+        int[] ec = new int[256];
+        int[] ic = new int[256];
+
+        if (sec.TryGetProperty("endpointHistory", out var ehEl) && ehEl.ValueKind != JsonValueKind.Null)
+        {
+            foreach (var (index, channels) in Entries(ehEl))
+            {
+                if (channels.ValueKind != JsonValueKind.Array || channels.GetArrayLength() != 3)
+                    throw new InvalidDataException($"BC6H endpointHistory[{index}] must be 3x4 integers");
+                int c = 0;
+                foreach (var ch in channels.EnumerateArray())
+                {
+                    if (ch.ValueKind != JsonValueKind.Array || ch.GetArrayLength() != 4)
+                        throw new InvalidDataException($"BC6H endpointHistory[{index}] must be 3x4 integers");
+                    int q = 0;
+                    foreach (var v in ch.EnumerateArray())
+                        eh[index * 12 + c * 4 + q++] = (int)ToInteger(v, $"BC6H endpointHistory[{index}]");
+                    c++;
+                }
+            }
+        }
+
+        if (sec.TryGetProperty("indexHistory", out var ihEl) && ihEl.ValueKind != JsonValueKind.Null)
+        {
+            foreach (var (index, pixels) in Entries(ihEl))
+            {
+                if (pixels.ValueKind != JsonValueKind.Array || pixels.GetArrayLength() != 16)
+                    throw new InvalidDataException($"BC6H indexHistory[{index}] must have 16 integers");
+                int p = 0;
+                foreach (var v in pixels.EnumerateArray())
+                    ih[index * 16 + p++] = (int)ToInteger(v, $"BC6H indexHistory[{index}]");
+            }
+        }
+
+        if (sec.TryGetProperty("endpointClass", out var ecEl) && ecEl.ValueKind != JsonValueKind.Null)
+        {
+            foreach (var (index, cls) in Entries(ecEl))
+                ec[index] = (int)ToInteger(cls, $"BC6H endpointClass[{index}]");
+        }
+
+        if (sec.TryGetProperty("indexClass", out var icEl) && icEl.ValueKind != JsonValueKind.Null)
+        {
+            foreach (var (index, cls) in Entries(icEl))
+                ic[index] = (int)ToInteger(cls, $"BC6H indexClass[{index}]");
+        }
+
+        byte[] epCb = new byte[256 * 12];
+        byte[] ixCb = new byte[256 * 16];
+        for (int i = 0; i < 256; i++)
+        {
+            if (ec[i] == 3)
+            {
+                for (int c = 0; c < 3; c++)
+                {
+                    int at = i * 12 + c * 4;
+                    epCb[at] = 16;
+                    epCb[at + 1] = 10;
+                    epCb[at + 2] = 6;
+                    epCb[at + 3] = 6;
+                }
+            }
+            if (ic[i] == 3)
+                Array.Fill(ixCb, (byte)4, i * 16, 16);
+        }
+
+        if (sec.TryGetProperty("endpointConfirmedBits", out var epCbEl))
+        {
+            Array.Clear(epCb);
+            if (epCbEl.ValueKind != JsonValueKind.Null)
+            {
+                foreach (var (index, row) in Entries(epCbEl))
+                {
+                    if (row.ValueKind != JsonValueKind.Array || row.GetArrayLength() != 3)
+                        throw new InvalidDataException($"BC6H endpointConfirmedBits[{index}] must be 3x4 integers");
+                    int c = 0;
+                    foreach (var ch in row.EnumerateArray())
+                    {
+                        if (ch.ValueKind != JsonValueKind.Array || ch.GetArrayLength() != 4)
+                            throw new InvalidDataException($"BC6H endpointConfirmedBits[{index}] must be 3x4 integers");
+                        int q = 0;
+                        foreach (var v in ch.EnumerateArray())
+                        {
+                            long iv = ToInteger(v, $"BC6H endpointConfirmedBits[{index}]");
+                            if (iv < 0 || iv > Bc6hEndpointWidths[q])
+                                throw new InvalidDataException($"BC6H endpointConfirmedBits[{index}] bit depth out of bounds");
+                            epCb[index * 12 + c * 4 + q++] = (byte)iv;
+                        }
+                        c++;
+                    }
+                }
+            }
+        }
+
+        if (sec.TryGetProperty("indexConfirmedBits", out var ixCbEl))
+        {
+            Array.Clear(ixCb);
+            if (ixCbEl.ValueKind != JsonValueKind.Null)
+            {
+                foreach (var (index, row) in Entries(ixCbEl))
+                {
+                    if (row.ValueKind != JsonValueKind.Array || row.GetArrayLength() != 16)
+                        throw new InvalidDataException($"BC6H indexConfirmedBits[{index}] must have 16 integers");
+                    int p = 0;
+                    foreach (var v in row.EnumerateArray())
+                    {
+                        long iv = ToInteger(v, $"BC6H indexConfirmedBits[{index}]");
+                        if (iv < 0 || iv > 4)
+                            throw new InvalidDataException($"BC6H indexConfirmedBits[{index}] bit depth out of bounds");
+                        ixCb[index * 16 + p++] = (byte)iv;
+                    }
+                }
+            }
+        }
+
+        return new Bc6hHistoryTable(eh, ih, ec, ic, epCb, ixCb);
+    }
+
+    private static Bc7HistoryTable ParseBc7(JsonElement sec)
+    {
+        if (sec.ValueKind != JsonValueKind.Object) throw new InvalidDataException("bc7 history section must be a JSON object");
+        if (sec.TryGetProperty("codec", out var codec) && !(codec.ValueKind == JsonValueKind.String && codec.GetString() == "bc7"))
+            throw new InvalidDataException($"expected codec 'bc7', got {(codec.ValueKind == JsonValueKind.String ? $"'{codec.GetString()}'" : codec.GetRawText())}");
+
+        int[] ep = new int[256 * 24];
+        int[] epB = new int[256 * 24];
+        int[] epCb = new int[256 * 24];
+        int[] ix = new int[256 * 32];
+        int[] ixB = new int[256 * 32];
+        int[] ixCb = new int[256 * 32];
+
+        ParseBc7Table(sec, "historyEndpoints", ep, 24);
+        ParseBc7Table(sec, "historyEndpointBits", epB, 24);
+        ParseBc7Table(sec, "historyEndpointConfirmedBits", epCb, 24);
+        ParseBc7Table(sec, "historyIndices", ix, 32);
+        ParseBc7Table(sec, "historyIndexBits", ixB, 32);
+        ParseBc7Table(sec, "historyIndexConfirmedBits", ixCb, 32);
+
+        for (int i = 0; i < ep.Length; i++)
+        {
+            int d = epB[i];
+            if (d is > 0 and < 8)
+                ep[i] = ((ep[i] >> (8 - d)) << (8 - d)) | (1 << (7 - d));
+        }
+
+        var lastResort = new HashSet<(int Entry, int Slot)>();
+        if (sec.TryGetProperty("historyEndpointLastResort", out var lrEl) && lrEl.ValueKind != JsonValueKind.Null)
+        {
+            if (lrEl.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException("historyEndpointLastResort must be a JSON array");
+            foreach (var item in lrEl.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Array)
+                    throw new InvalidDataException("historyEndpointLastResort entries must have 2 or 4 integers");
+                int len = item.GetArrayLength();
+                if (len == 4)
+                {
+                    int[] vals = new int[4];
+                    int n = 0;
+                    foreach (var v in item.EnumerateArray())
+                        vals[n++] = (int)ToInteger(v, "historyEndpointLastResort");
+                    lastResort.Add((vals[0], vals[1] * 8 + vals[2] * 4 + vals[3]));
+                }
+                else if (len == 2)
+                {
+                    int[] vals = new int[2];
+                    int n = 0;
+                    foreach (var v in item.EnumerateArray())
+                        vals[n++] = (int)ToInteger(v, "historyEndpointLastResort");
+                    lastResort.Add((vals[0], vals[1]));
+                }
+                else
+                {
+                    throw new InvalidDataException("historyEndpointLastResort entries must have 2 or 4 integers");
+                }
+            }
+        }
+
+        return new Bc7HistoryTable(
+            ep,
+            epB,
+            epCb,
+            ix,
+            ixB,
+            ixCb,
+            lastResort.Count == 0 ? FrozenSet<(int Entry, int Slot)>.Empty : lastResort.ToFrozenSet());
+    }
+
+    private static void ParseBc7Table(JsonElement sec, string propertyName, int[] target, int stride)
+    {
+        if (!sec.TryGetProperty(propertyName, out var table) || table.ValueKind == JsonValueKind.Null)
+            return;
+        foreach (var (index, value) in Entries(table))
+        {
+            int written = 0;
+            FlattenBc7Entry(value, target, index * stride, stride, $"BC7 {propertyName}[{index}]", 0, ref written);
+            if (written != stride)
+                throw new InvalidDataException($"expected {stride} integers in BC7 history entry, got {written}");
+        }
+    }
+
+    private static void FlattenBc7Entry(JsonElement el, int[] dest, int baseOffset, int expectedLen, string where, int depth, ref int count)
+    {
+        if (depth > 8)
+            throw new InvalidDataException($"{where} exceeds maximum nesting depth");
+        if (el.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in el.EnumerateArray())
+                FlattenBc7Entry(item, dest, baseOffset, expectedLen, where, depth + 1, ref count);
+            return;
+        }
+        long iv = ToInteger(el, where);
+        if (count < expectedLen)
+            dest[baseOffset + count] = (int)iv;
+        count++;
     }
 
     private static Dictionary<int, int[]> ParseMap(JsonElement sec, string label, string key, int[] mods)

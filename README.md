@@ -77,11 +77,11 @@ Expand an archive and its folders under **Sources and textures**, then expand a 
 
 The texture selector above the preview switches between images in the same dictionary. Arrays, cube maps, and volumes also have a slice or face selector where supported. **Export DDS** saves the texture in DDS format, including the available mip levels.
 
-Supported TTPF layouts include compact 2D mip chains, 2D arrays, streaming cube maps, and single-mip 3D volumes, including Xbox BCPack BC1, BC3, BC4, and BC5 chunks. The preview can select individual slices or faces, and DDS exports preserve the supported texture shape. R16G16B16A16_UNORM previews retain the original 16-bit channels in DDS exports. Unvalidated storage profiles, unsupported formats, and unsupported BCPack codecs (BC6H/BC7) remain unavailable. These additional layouts and BCPack-compressed textures are read-only; they do not add native replacement support.
+Supported TTPF layouts include compact 2D mip chains, 2D arrays, streaming cube maps, and single-mip 3D volumes, including Xbox BCPack BC1, BC3, BC4, BC5, BC6H, and BC7 chunks. The preview can select individual slices or faces, and DDS exports preserve the supported texture shape. R16G16B16A16_UNORM previews retain the original 16-bit channels in DDS exports. Unvalidated storage profiles, unsupported formats, and unsupported BCPack codecs remain unavailable; when a higher BCPack mip requires external initial history in strict mode, export and preview fall back to lower decodable mips when present. These additional layouts and BCPack-compressed textures are read-only; they do not add native replacement support.
 
 Streaming textures may have generated names based on native keys. These are not claimed to be their original filenames.
 
-Integrations using `RpfPreview.Core` can load local BC1/BC3/BC4/BC5 history tables with `BcpackHistory.Load(path)` and pass them to the decoding or export overloads. The desktop viewer uses the built-in tables. History files are not bundled; BC6H/BC7 history tables remain unsupported.
+Integrations using `RpfPreview.Core` can load local BC1/BC3/BC4/BC5/BC6H/BC7 history tables with `BcpackHistory.Load(path)` and pass them to the decoding or export overloads. The desktop viewer uses the built-in tables (self-contained BC6H/BC7 chunks decode directly; history-dependent BC6H/BC7 chunks require external tables). History files are not bundled.
 
 ## Appearance
 
@@ -129,7 +129,7 @@ Model recovery also supports fragments with absent optional header pointers, sup
 
 Use **Scan entire archive** to rebuild a saved model index after a decoder update. Model recovery supports RPF9 resources with small uncompressed metadata or geometry tails alongside their zlib blocks.
 
-Some models still have missing or unsupported material bindings, even when the pools are loaded. Unsupported Xbox BCPack codecs (BC6H/BC7) remain unavailable. Full game shaders and palette effects are not reproduced.
+Some models still have missing or unsupported material bindings, even when the pools are loaded. History-dependent BC6H/BC7 textures require external history tables for their upper mips (falling back to lower mips when available). Full game shaders and palette effects are not reproduced.
 
 ## Assemble outfits
 

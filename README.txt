@@ -138,13 +138,14 @@ mip. Format/resolution notes are displayed.
 
 Streaming textures: open or drop an RDS5 .ttpf pool to browse its native ETPF634
 catalog. Validated 2D, compact, array, cubemap and 3D-volume allocations with
-stored, zlib or BCPack (BC1/BC3/BC4/BC5) chunks preview and export DDS. Some
-textures export only their supported mips; the app and DDS header identify that
-accurately. Catalog IDs are opaque and original filename semantics remain unknown.
-Unsupported BCPack codecs (BC6H/BC7), unvalidated storage profiles and unsupported
-formats are listed with their limitations. Original filenames remain unknown;
-supported external diffuse material references use the separately validated native
-64-bit asset keys.
+stored, zlib or BCPack (BC1/BC3/BC4/BC5/BC6H/BC7) chunks preview and export DDS.
+Some textures export only their supported mips (including falling back to lower
+decodable mips when upper BCPack mips require external history in strict mode);
+the app and DDS header identify that accurately. Catalog IDs are opaque and
+original filename semantics remain unknown. Unsupported BCPack codecs,
+unvalidated storage profiles and unsupported formats are listed with their
+limitations. Original filenames remain unknown; supported external diffuse
+material references use the separately validated native 64-bit asset keys.
 
 Audio: validated AWC banks, independent Opus, streamed Opus music channels, PCM
 and nonstreamed XMA2 via a local FFmpeg backend. Choose a sound/channel and press
@@ -237,10 +238,11 @@ No downloaded game assets or game decryption keys are bundled with this app.
 
 EXTERNAL BCPACK HISTORY
 
-Core integrations can load local BC1/BC3/BC4/BC5 history tables with
+Core integrations can load local BC1/BC3/BC4/BC5/BC6H/BC7 history tables with
 BcpackHistory.Load(path) and pass them to decoding or export overloads.
-The desktop viewer uses the built-in tables. History files are not bundled.
-BC6H/BC7 history tables remain unsupported.
+The desktop viewer uses the built-in tables (self-contained BC6H/BC7 chunks
+decode directly; history-dependent BC6H/BC7 chunks require external tables).
+History files are not bundled.
 
 MICROSOFT SILICON-RANS NOTICE
 
