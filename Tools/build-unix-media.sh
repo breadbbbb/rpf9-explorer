@@ -26,11 +26,11 @@ cp COPYING.* "$out/notices/"
 curl -fsSL --retry 3 https://www.gnu.org/licenses/agpl-3.0.txt -o "$out/notices/AGPL-3.0.txt"
 cp "$stage/opus/COPYING" "$out/notices/Opus-COPYING"
 cp "$stage/miniaudio/LICENSE" "$out/notices/miniaudio-LICENSE"
-cmake -S "$stage/opus" -B "$stage/opus-build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF >/dev/null
+cmake -S "$stage/opus" -B "$stage/opus-build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DOPUS_BUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF -DOPUS_DISABLE_INTRINSICS=ON >/dev/null
 cmake --build "$stage/opus-build" --parallel "$jobs" >/dev/null
 c++ -std=c++17 -O2 -I"$stage/opus/include" "$root/Tools/OpusPreview.cpp" "$stage/opus-build/libopus.a" -o "$out/bin/opus-preview"
 libs=(-lpthread -ldl -lm)
 if [[ $(uname) == Darwin ]]; then libs=(-framework CoreAudio -framework AudioToolbox -framework CoreFoundation); fi
 cc -std=c11 -O2 -I"$stage/miniaudio" "$root/Tools/audio-output.c" "${libs[@]}" -o "$out/bin/audio-output"
-"$out/bin/ffmpeg" -hide_banner -decoders 2>/dev/null | grep -E 'bink2 .*Bink' >/dev/null
+"$out/bin/ffmpeg" -hide_banner -decoders 2>/dev/null | grep -E 'bink2video .*Bink' >/dev/null
 cp "$root/Tools/build-unix-media.sh" "$root/Tools/audio-output.c" "$root/Tools/OpusPreview.cpp" "$out/source/"

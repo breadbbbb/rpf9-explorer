@@ -263,7 +263,7 @@ int main(int argc,char** argv) {
         if(lseek(output.value,0,SEEK_SET)!=0)
 #endif
             throw std::runtime_error("Cannot finish WAV header.");write(output,wav,44);output.close();
-        printf("{\"codec\":\"%s\",\"streamIndex\":%llu,\"id\":\"%08X\",\"sampleRate\":%d,\"channels\":%d,\"declaredSamples\":%u,\"decodedSamples\":%llu,\"packets\":%llu,\"peak\":%d,\"rms\":%.3f,\"previewLimited\":%s,\"trim\":\"Raw complete packet decode; source-specific pre-skip/end trim unresolved\"}\n",sound.codec==0?"PCM16":"Opus",number(argv[4]),sound.id,outputRate,sound.channels,sound.samples,written,packets,peak,double(sqrt(sumSquares/(written*sound.channels))),limited?"true":"false");
+        printf("{\"codec\":\"%s\",\"streamIndex\":%llu,\"id\":\"%08X\",\"sampleRate\":%d,\"channels\":%d,\"declaredSamples\":%u,\"decodedSamples\":%llu,\"packets\":%llu,\"peak\":%d,\"rms\":%.3f,\"previewLimited\":%s,\"trim\":\"Raw complete packet decode; source-specific pre-skip/end trim unresolved\"}\n",sound.codec==0?"PCM16":"Opus",static_cast<unsigned long long>(number(argv[4])),sound.id,outputRate,sound.channels,sound.samples,static_cast<unsigned long long>(written),static_cast<unsigned long long>(packets),peak,double(sqrt(sumSquares/(written*sound.channels))),limited?"true":"false");
         return 0;
     } catch(const std::exception& e) {
         output.close();if(created) { std::error_code ignored; std::filesystem::remove(argv[5],ignored); }fprintf(stderr,"%s\n",e.what());return 1;
